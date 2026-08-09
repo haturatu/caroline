@@ -4,6 +4,9 @@
 # Node.js dependencies
 node_modules/
 
+# Frontend build output
+/static/
+
 # Test, coverage, and runtime output
 coverage/
 *.log

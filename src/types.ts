@@ -61,6 +61,9 @@ export interface ExplorerResponse {
 	duration: string;
 	query: string;
 	approximate: boolean;
+	logTail: number;
+	entryLimit: number;
+	truncated: boolean;
 	errors?: string[];
 }
 
@@ -81,6 +84,7 @@ export interface AppState {
 	containers: ContainerInfo[];
 	response: ExplorerResponse | null;
 	loading: boolean;
+	lastUpdated: string;
 	selectedId: string | null;
 	fieldsHidden: boolean;
 	timelineHidden: boolean;
@@ -92,6 +96,7 @@ export interface AppState {
 		status: string;
 		explorer: string;
 	};
+	errorDetails: string[];
 }
 
 export interface QuerySuggestion {
@@ -106,6 +111,5 @@ export interface QuerySuggestion {
 export interface RenderActions {
 	onFieldFilter?: (field: string, value: string) => void;
 	onTimelineSelect?: (start: string, end: string) => void;
-	onEntrySelect?: (entryId: string) => void;
 	onToast?: (message: string) => void;
 }

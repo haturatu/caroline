@@ -1,10 +1,12 @@
 import { $$, $, escapeHTML } from "./dom.js";
 import {
 	formatNumber,
+	formatClockTime,
 	formatTime,
 	formatTimelineTick,
 	severityClass,
 } from "./format.js";
+import { buildBasicQuery } from "./api.js";
 import { state } from "./state.js";
 import type { ExplorerEntry, RenderActions, TimelineBucket } from "./types.js";
 
@@ -16,9 +18,9 @@ export function setRenderActions(nextActions: RenderActions): void {
 
 export function renderLoading(): void {
 	$("#fieldGroups").innerHTML =
-		'<div class="panel-loading loading-panel"><span class="spinner"></span><span>Loading fields…</span></div>';
+		'<div class="panel-loading loading-panel"><span class="spinner"></span><span>Loading Fields…</span></div>';
 	$("#timelineChart").innerHTML =
-		'<div class="chart-loading"><span class="spinner"></span><span>Loading timeline…</span></div>';
+		'<div class="chart-loading"><span class="spinner"></span><span>Loading Timeline…</span></div>';
 	$("#timelineAxis").innerHTML = "";
 	$("#entryList").innerHTML =
 		'<div class="empty-state"><span class="spinner"></span><strong>Loading Logs…</strong><p>Reading the latest entries from Docker Engine.</p></div>';
@@ -27,7 +29,7 @@ export function renderLoading(): void {
 export function renderFilters(): void {
 	const select = $("#containerFilter") as HTMLSelectElement;
 	const options = [
-		'<option value="">All Containers</option>',
+		'<option value="">All containers</option>',
 		...state.containers.map(
 			(container) =>
 				`<option value="${escapeHTML(container.id)}">${escapeHTML(container.name)}</option>`,
@@ -51,10 +53,14 @@ export function renderFilters(): void {
 	($("#sortFilter") as HTMLSelectElement).value = state.sort;
 	($("#queryInput") as HTMLTextAreaElement).value = state.draftQuery;
 	($("#searchAllFields") as HTMLInputElement).value = state.searchText;
+	$("#combinedQueryPreview").textContent =
+		[...buildBasicQuery(), state.draftQuery.trim()]
+			.filter(Boolean)
+			.join(" AND ") || "All Logs";
 	$("#queryEditor").toggleAttribute("hidden", !state.showQuery);
 	$("#showQueryButton").textContent = state.showQuery
-		? "Hide query"
-		: "Show query";
+		? "Hide Query"
+		: "Show Query";
 }
 
 function toDateTimeLocal(value: string): string {
@@ -68,7 +74,7 @@ export function renderFields(): void {
 	const target = $("#fieldGroups");
 	if (state.loading && !state.response) {
 		target.innerHTML =
-			'<div class="panel-loading loading-panel"><span class="spinner"></span><span>Loading fields…</span></div>';
+			'<div class="panel-loading loading-panel"><span class="spinner"></span><span>Loading Fields…</span></div>';
 		return;
 	}
 	if (!state.response?.fields.length) {
@@ -129,10 +135,42 @@ function timelineBucketLabel(bucket: TimelineBucket): string {
 	return `${formatTimelineTick(midpoint)} · ${formatNumber(bucket.total)} entries`;
 }
 
-function timelineSelection(response: {
-	from: string;
-	to: string;
-}): { left: number; right: number } {
+function timelineBucketAriaLabel(bucket: TimelineBucket): string {
+	const severityLabels: Record<string, string> = {
+		ERROR: "errors",
+		WARNING: "warnings",
+		INFO: "info",
+		DEBUG: "debug",
+	};
+	const breakdown = ["ERROR", "WARNING", "INFO", "DEBUG"]
+		.filter((severity) => (bucket.severities[severity] || 0) > 0)
+		.map(
+			(severity) =>
+				`${formatNumber(bucket.severities[severity] || 0)} ${severityLabels[severity]}`,
+		)
+		.join(", ");
+	return `${formatTime(bucket.start)} to ${formatTime(bucket.end)}. ${formatNumber(bucket.total)} entries${breakdown ? `: ${breakdown}` : ": no severity breakdown"}. Select this interval.`;
+}
+
+function renderTimelineLegend(): void {
+	const legend = $("#timelineLegend");
+	legend.innerHTML = [
+		["error", "Errors"],
+		["warning", "Warnings"],
+		["info", "Info"],
+		["debug", "Debug"],
+	]
+		.map(
+			([className, label]) =>
+				`<span class="timeline-legend-item"><span class="timeline-legend-swatch ${className}" aria-hidden="true"></span><span>${label}</span></span>`,
+		)
+		.join("");
+}
+
+function timelineSelection(response: { from: string; to: string }): {
+	left: number;
+	right: number;
+} {
 	const from = Date.parse(response.from);
 	const to = Date.parse(response.to);
 	const selectedFrom = state.timeFrom ? Date.parse(state.timeFrom) : from;
@@ -157,14 +195,16 @@ export function renderTimeline(): void {
 	const axis = $("#timelineAxis");
 	if (state.loading && !response) {
 		chart.innerHTML =
-			'<div class="chart-loading"><span class="spinner"></span><span>Loading timeline…</span></div>';
+			'<div class="chart-loading"><span class="spinner"></span><span>Loading Timeline…</span></div>';
 		axis.innerHTML = "";
+		$("#timelineLegend").innerHTML = "";
 		return;
 	}
 	if (!response?.timeline.length) {
 		chart.innerHTML =
 			'<div class="chart-loading">No timeline data for this query.</div>';
 		axis.innerHTML = "";
+		$("#timelineLegend").innerHTML = "";
 		return;
 	}
 	const maximum = Math.max(
@@ -176,15 +216,15 @@ export function renderTimeline(): void {
 			if (!bucket.total) return "";
 			const height = Math.max(4, Math.round((bucket.total / maximum) * 68));
 			const position = ((index + 0.5) / response.timeline.length) * 100;
-			const rangeLabel = `${formatTime(bucket.start)} to ${formatTime(bucket.end)}`;
-			return `<button class="timeline-bar" type="button" data-start="${escapeHTML(bucket.start)}" data-end="${escapeHTML(bucket.end)}" style="--bar-position:${position}%;--bar-height:${height}px" aria-label="Set time range to ${escapeHTML(rangeLabel)}; ${bucket.total} entries"><span class="timeline-bar-inner">${timelineSegment(bucket, "ERROR", "error")}${timelineSegment(bucket, "WARNING", "warning")}${timelineSegment(bucket, "INFO", "info")}${timelineSegment(bucket, "DEBUG", "debug")}</span></button>`;
+			return `<button class="timeline-bar" type="button" data-index="${index}" data-start="${escapeHTML(bucket.start)}" data-end="${escapeHTML(bucket.end)}" style="--bar-position:${position}%;--bar-height:${height}px" aria-label="${escapeHTML(timelineBucketAriaLabel(bucket))}"><span class="timeline-bar-inner">${timelineSegment(bucket, "ERROR", "error")}${timelineSegment(bucket, "WARNING", "warning")}${timelineSegment(bucket, "INFO", "info")}${timelineSegment(bucket, "DEBUG", "debug")}</span></button>`;
 		})
 		.join("");
 	const selection = timelineSelection(response);
+	renderTimelineLegend();
 	const initialBucket =
 		response.timeline[Math.floor(response.timeline.length / 2)] ||
 		response.timeline[0];
-	chart.innerHTML = `<div class="timeline-grid" aria-hidden="true"><span></span><span></span><span></span><span></span></div><div class="timeline-selection" style="left:${selection.left}%;right:${selection.right}%" aria-hidden="true"><span class="timeline-handle timeline-handle-start"></span><span class="timeline-handle timeline-handle-end"></span></div><div class="timeline-bars">${bars}</div><div class="timeline-baseline" aria-hidden="true"></div><div class="timeline-cursor" style="left:50%" aria-hidden="true"><span class="timeline-cursor-badge" title="${escapeHTML(timelineBucketLabel(initialBucket))}">${escapeHTML(timelineBucketLabel(initialBucket))}</span></div>`;
+	chart.innerHTML = `<div class="timeline-grid" aria-hidden="true"><span></span><span></span><span></span><span></span></div><div class="timeline-selection" style="left:${selection.left}%;right:${selection.right}%" aria-hidden="true"></div><div class="timeline-bars">${bars}</div><div class="timeline-baseline" aria-hidden="true"></div><div class="timeline-cursor" style="left:50%" aria-hidden="true"><span class="timeline-cursor-badge" title="${escapeHTML(timelineBucketLabel(initialBucket))}">${escapeHTML(timelineBucketLabel(initialBucket))}</span></div>`;
 	const tickCount = 7;
 	axis.innerHTML = Array.from({ length: tickCount }, (_, index) => {
 		const bucketIndex = Math.min(
@@ -211,7 +251,12 @@ export function renderTimeline(): void {
 			if (cursor) cursor.style.left = `${position * 100}%`;
 			if (timeline.length) {
 				const bucket =
-					timeline[Math.min(timeline.length - 1, Math.floor(position * timeline.length))];
+					timeline[
+						Math.min(
+							timeline.length - 1,
+							Math.floor(position * timeline.length),
+						)
+					];
 				const label = timelineBucketLabel(bucket);
 				const badge = chart.querySelector<HTMLElement>(
 					".timeline-cursor-badge",
@@ -241,13 +286,28 @@ export function renderTimeline(): void {
 		});
 		chart.dataset.cursorBound = "true";
 	}
-	$$<HTMLButtonElement>(".timeline-bar").forEach((bar) =>
+	const setTimelineBadge = (bar: HTMLButtonElement): void => {
+		const timeline = state.response?.timeline || [];
+		const index = Number(bar.dataset.index || 0);
+		const bucket = timeline[index];
+		if (!bucket) return;
+		const cursor = chart.querySelector<HTMLElement>(".timeline-cursor");
+		const badge = chart.querySelector<HTMLElement>(".timeline-cursor-badge");
+		if (cursor)
+			cursor.style.left = `${((index + 0.5) / timeline.length) * 100}%`;
+		if (badge) {
+			badge.textContent = timelineBucketLabel(bucket);
+			badge.title = timelineBucketLabel(bucket);
+		}
+	};
+	$$<HTMLButtonElement>(".timeline-bar").forEach((bar) => {
+		bar.addEventListener("focus", () => setTimelineBadge(bar));
 		bar.addEventListener("click", () => {
 			const start = bar.getAttribute("data-start");
 			const end = bar.getAttribute("data-end");
 			if (start && end) actions.onTimelineSelect?.(start, end);
-		}),
-	);
+		});
+	});
 }
 
 export function entrySummary(entry: ExplorerEntry): string {
@@ -266,7 +326,9 @@ export function renderEntries(): void {
 		return;
 	}
 	if (!state.entries.length) {
-		list.innerHTML = `<div class="empty-state"><span class="empty-state-icon" aria-hidden="true">⌕</span><strong>${state.response ? "No Matching Log Entries" : "Run a Query"}</strong><p>${state.response ? "Try a broader time range or a less specific query." : "Your matching log entries will appear here."}</p></div>`;
+		list.innerHTML = state.response
+			? '<div class="empty-state"><span class="empty-state-icon" aria-hidden="true">⌕</span><strong>No Logs Match These Filters</strong><p>Try a broader time range or a less specific query.</p><div class="empty-state-actions"><button class="text-button" type="button" data-empty-action="reset">Reset Filters</button><button class="text-button" type="button" data-empty-action="hour">Last 1 Hour</button></div></div>'
+			: '<div class="empty-state"><span class="empty-state-icon" aria-hidden="true">⌕</span><strong>Run a Query</strong><p>Your matching log entries will appear here.</p></div>';
 		return;
 	}
 	list.classList.toggle("wrap-lines", state.wrap);
@@ -276,12 +338,6 @@ export function renderEntries(): void {
 				`<button class="entry-row ${state.selectedId === entry.insertId ? "selected" : ""}" type="button" data-entry-id="${escapeHTML(entry.insertId)}" aria-label="${escapeHTML(`${entry.severity} log from ${entry.resource.labels.container_name}: ${entrySummary(entry)}`)}"><span class="entry-time">${escapeHTML(formatTime(entry.timestamp))}</span><span class="entry-severity ${severityClass(entry.severity)}">${escapeHTML(entry.severity)}</span><span class="entry-resource"><span class="resource-name">${escapeHTML(entry.resource.labels.container_name || "Unknown Container")}</span><span class="resource-meta">${escapeHTML(entry.stream)} · ${escapeHTML(entry.resource.type)}</span></span><span class="entry-summary" title="${escapeHTML(entrySummary(entry))}">${escapeHTML(entrySummary(entry))}</span><span class="entry-open"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></span></button>`,
 		)
 		.join("");
-	$$<HTMLButtonElement>(".entry-row").forEach((row) =>
-		row.addEventListener("click", () => {
-			const entryId = row.getAttribute("data-entry-id");
-			if (entryId) actions.onEntrySelect?.(entryId);
-		}),
-	);
 }
 
 export function renderDetail(): void {
@@ -309,15 +365,26 @@ export function renderDetail(): void {
 
 export function renderResultsMeta(): void {
 	const response = state.response;
+	const logTail = response?.logTail || 1000;
+	const entryLimit = response?.entryLimit || 50000;
 	$("#resultCount").textContent = response
 		? `${formatNumber(response.total)} Entries`
 		: "—";
 	$("#approximateBadge").toggleAttribute("hidden", !response?.approximate);
 	$("#resultsDescription").textContent = response
-		? `${formatTime(response.from)} – ${formatTime(response.to)} · ${state.live ? "Live refresh enabled" : "Refresh paused"}`
-		: "Run a query to see matching log entries.";
+		? `${formatTime(response.from)} – ${formatTime(response.to)} · ${state.live ? "Auto-refresh every 5s" : "Auto-refresh paused"} · Up to last ${formatNumber(logTail)} lines per container${response.truncated ? ` · Result cap ${formatNumber(entryLimit)} entries` : ""}`
+		: "Run a Query to see matching log entries.";
+	$("#refreshStatus").textContent = state.loading
+		? "Refreshing…"
+		: state.lastUpdated
+			? `Updated ${formatClockTime(state.lastUpdated)}`
+			: "";
+	const runButton = $("#runQueryButton") as HTMLButtonElement;
+	runButton.dataset.loading = String(state.loading);
+	runButton.disabled = state.loading;
+	runButton.setAttribute("aria-busy", String(state.loading));
 	$("#resultsFooter").textContent = state.live
-		? "Polling Docker Engine Every 5 Seconds."
+		? "Docker Engine · polling every 5 seconds."
 		: "Live refresh is paused.";
 	const next = $("#nextPageButton") as HTMLButtonElement;
 	next.toggleAttribute("hidden", !response?.nextPageToken);
@@ -341,8 +408,8 @@ export function renderAll(): void {
 	$("#streamButton").classList.toggle("paused", !state.live);
 	$("#streamButton").setAttribute("aria-pressed", String(state.live));
 	$("#streamButtonText").textContent = state.live
-		? "Auto-refresh On"
-		: "Auto-refresh Off";
+		? "Auto-refresh · 5s"
+		: "Auto-refresh paused";
 	$("#fieldsToggle").textContent = state.fieldsHidden ? "›" : "‹";
 	$("#fieldsToggle").setAttribute(
 		"aria-label",

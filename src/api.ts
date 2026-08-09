@@ -3,6 +3,36 @@ import type { ExplorerResponse, Severity } from "./types.js";
 
 const supportedDurations = ["5m", "15m", "1h", "6h", "24h", "7d"];
 
+function quoteQueryValue(value: string): string {
+	return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+/** Basic controls and the advanced editor are sent as one visible query. */
+export function buildBasicQuery(): string[] {
+	const parts: string[] = [];
+	if (state.container) {
+		const container = state.containers.find(
+			(item) => item.id === state.container,
+		);
+		if (container) {
+			parts.push(
+				`resource.labels.container_name = ${quoteQueryValue(container.name)}`,
+			);
+		}
+	}
+	if (state.stream) parts.push(`stream = ${quoteQueryValue(state.stream)}`);
+	if (state.severity) parts.push(`severity = ${state.severity}`);
+	if (state.searchText)
+		parts.push(`SEARCH(${quoteQueryValue(state.searchText.trim())})`);
+	return parts;
+}
+
+export function buildExplorerQuery(): string {
+	return [...buildBasicQuery(), state.query.trim()]
+		.filter(Boolean)
+		.join(" AND ");
+}
+
 export async function getJSON<T>(url: string): Promise<T> {
 	const response = await fetch(url, {
 		headers: { Accept: "application/json" },
@@ -22,7 +52,7 @@ export function hydrateURL(): void {
 	state.query = params.get("q") || "";
 	state.draftQuery = state.query;
 	state.searchText = params.get("search") || "";
-	state.showQuery = Boolean(state.query);
+	state.showQuery = params.get("advanced") === "1" || Boolean(state.query);
 	state.container = params.get("container") || "";
 	state.stream = params.get("stream") || "";
 	state.severity = ["", "DEBUG", "INFO", "WARNING", "ERROR"].includes(severity)
@@ -33,6 +63,11 @@ export function hydrateURL(): void {
 	state.timeTo = params.get("to") || "";
 	state.live = params.get("live") !== "0";
 	state.sort = params.get("sort") === "asc" ? "asc" : "desc";
+	state.wrap = params.get("wrap") === "1";
+	if (params.has("fields")) state.fieldsHidden = params.get("fields") !== "1";
+	if (params.has("timeline"))
+		state.timelineHidden = params.get("timeline") === "0";
+	state.pageToken = params.get("pageToken") || "";
 }
 
 export function syncURL(): void {
@@ -48,6 +83,11 @@ export function syncURL(): void {
 		sort: state.sort,
 		from: state.timeFrom,
 		to: state.timeTo,
+		advanced: state.showQuery ? "1" : "0",
+		wrap: state.wrap ? "1" : "0",
+		fields: state.fieldsHidden ? "0" : "1",
+		timeline: state.timelineHidden ? "0" : "1",
+		pageToken: state.pageToken,
 	};
 	Object.entries(values).forEach(([key, value]) => {
 		if (value) url.searchParams.set(key, value);
@@ -62,14 +102,9 @@ export function buildExplorerURL(): string {
 		limit: "100",
 		sort: state.sort,
 	});
-	const queryParts: string[] = [];
-	if (state.searchText)
-		queryParts.push('SEARCH("' + state.searchText.replace(/"/g, '\\"') + '")');
-	if (state.query) queryParts.push(state.query);
-	if (queryParts.length) params.set("q", queryParts.join(" AND "));
+	const query = buildExplorerQuery();
+	if (query) params.set("q", query);
 	if (state.container) params.set("containers", state.container);
-	if (state.stream) params.set("stream", state.stream);
-	if (state.severity) params.set("severity", state.severity);
 	if (state.timeFrom) params.set("from", state.timeFrom);
 	if (state.timeTo) params.set("to", state.timeTo);
 	if (state.pageToken) params.set("pageToken", state.pageToken);

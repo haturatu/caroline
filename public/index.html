@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta id="themeColor" name="theme-color" content="#202124" />
+    <title>Caroline · Logs</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+    <script src="/theme-init.js"></script>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to content</a>
+    <div class="app-shell" id="appShell">
+      <header class="global-header">
+        <button class="console-menu" id="consoleMenuButton" type="button" aria-label="Open section navigation" aria-controls="sideNav" aria-expanded="false" title="Open section navigation">☰</button>
+        <a class="brand" href="/" aria-label="Caroline home"><span class="brand-mark">C</span><span class="brand-name">Caroline</span></a>
+        <div class="global-actions"><span class="connection-status"><span id="connectionDot"></span><span id="connectionText">Connecting…</span></span><button class="header-action" id="headerMenuButton" type="button" aria-label="Open workspace options" aria-controls="headerMenu" aria-expanded="false" title="Workspace options">⋮</button><div class="header-menu" id="headerMenu" hidden><button class="menu-item" id="themeToggleButton" type="button">Use Light Theme</button><button class="menu-item" id="refreshButton" type="button">Refresh Logs Now</button></div></div>
+      </header>
+
+      <div class="workspace-layout">
+        <nav class="side-nav" id="sideNav" aria-label="Log sections">
+          <div class="side-nav-group"><button class="side-nav-link active" id="logsNavButton" type="button" aria-current="location" title="Logs"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16M4 12h16M4 19h10"/></svg><span>Logs</span></button><button class="side-nav-link" id="timelineNavButton" type="button" title="Timeline"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19V5M4 19h16M8 15V9M12 15V6M16 15v-3"/></svg><span>Timeline</span></button><button class="side-nav-link" id="fieldsNavButton" type="button" title="Fields"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v14H5zM8 9h8M8 13h5"/></svg><span>Fields</span></button></div>
+          <div class="side-nav-footer"><span class="engine-icon" aria-hidden="true">D</span><span><strong id="sideEngineStatus">Docker Engine</strong><small id="sideEngineVersion">Waiting for connection</small></span></div>
+        </nav>
+        <div class="mobile-nav-backdrop" id="mobileNavBackdrop" hidden></div>
+
+        <main class="main-content" id="main-content" tabindex="-1">
+          <div class="page-heading"><div><h1>Logs</h1><p>Search and inspect Docker container output.</p></div><div class="heading-actions"><button class="text-button" id="shareButton" type="button">Share Link</button></div></div>
+
+          <section class="query-panel" aria-labelledby="query-title">
+            <div class="query-panel-header"><div><div class="section-kicker">FILTERS</div><h2 id="query-title">Search Logs</h2></div><div class="query-panel-actions"><span class="query-shortcut"><kbd>Ctrl</kbd><kbd>Enter</kbd> to run advanced query</span><button class="text-button" id="clearQueryButton" type="button">Reset Filters</button><button class="run-button" id="runQueryButton" type="button"><span class="run-button-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m8 5 8 7-8 7z"/></svg></span><span>Run Query</span><span class="button-spinner spinner" aria-hidden="true"></span></button></div></div>
+            <div class="query-search-row"><label class="search-all-fields"><span aria-hidden="true">⌕</span><span class="sr-only">Search Logs</span><input id="searchAllFields" type="search" autocomplete="off" placeholder="Search Logs…" /></label><span class="search-hint">Press <kbd>/</kbd> to focus</span></div>
+            <div class="refine-row" role="group" aria-label="Query Filters">
+              <label class="filter-control"><span>Container</span><select id="containerFilter" name="container"><option value="">All containers</option></select></label>
+              <label class="filter-control"><span>Stream</span><select id="streamFilter" name="stream"><option value="">All streams</option><option value="stdout">stdout</option><option value="stderr">stderr</option></select></label>
+              <label class="filter-control"><span>Severity</span><select id="severityFilter" name="severity"><option value="">All severities</option><option value="ERROR">Errors</option><option value="WARNING">Warnings</option><option value="INFO">Info</option><option value="DEBUG">Debug</option></select></label>
+              <label class="filter-control time-control"><span>Time</span><select id="rangeFilter" name="duration"><option value="5m">Last 5 minutes</option><option value="15m">Last 15 minutes</option><option value="1h">Last 1 hour</option><option value="6h">Last 6 hours</option><option value="24h">Last 24 hours</option><option value="7d">Last 7 days</option><option value="custom">Selected interval</option></select></label>
+              <div class="custom-range-editor" id="customRangeEditor" hidden><label><span>From</span><input id="customFromInput" type="datetime-local" step="1" /></label><label><span>To</span><input id="customToInput" type="datetime-local" step="1" /></label><button class="run-button compact-run" id="applyCustomRangeButton" type="button">Apply</button><button class="text-button" id="clearCustomRangeButton" type="button">Clear Interval</button></div>
+              <button class="text-button show-query-button" id="showQueryButton" type="button">Show Query</button>
+              <button class="stream-button" id="streamButton" type="button" aria-pressed="true"><span class="stream-dot"></span><span id="streamButtonText">Auto-refresh On</span></button>
+            </div>
+            <div class="query-editor" id="queryEditor" hidden><div class="query-editor-heading"><strong>Advanced Query</strong><span>Ctrl + Enter to run</span></div><label class="sr-only" for="queryInput">Advanced Logging Query</label><textarea id="queryInput" name="query" rows="3" spellcheck="false" placeholder="severity >= ERROR" role="combobox" aria-autocomplete="list" aria-controls="querySuggestions" aria-expanded="false"></textarea><div class="query-suggestions" id="querySuggestions" role="listbox" aria-label="Query Suggestions" hidden></div><div class="query-combination"><span>Combined with basic filters:</span><code id="combinedQueryPreview">All Logs</code></div></div>
+            <div class="query-help"><span class="info-icon" aria-hidden="true">i</span><span>Basic filters update immediately. Advanced query runs with <kbd>Ctrl</kbd> + <kbd>Enter</kbd>.</span><button class="text-button" id="queryHelpButton" type="button" aria-expanded="false" aria-controls="queryHelpPopover">Query Syntax</button><div class="query-help-popover" id="queryHelpPopover" role="dialog" aria-labelledby="queryHelpTitle" hidden><strong id="queryHelpTitle">Caroline Query Syntax</strong><p>Inspired by Google Cloud Logging syntax. Not fully compatible.</p><pre>severity &gt;= ERROR<br>container = &quot;nginx&quot;<br>stream = &quot;stderr&quot;<br>SEARCH(&quot;timeout&quot;)</pre><p>Combine clauses with <code>AND</code> or <code>OR</code>.</p></div></div>
+          </section>
+
+          <div class="explorer-grid">
+            <aside class="fields-panel" id="fields" tabindex="-1" aria-labelledby="fields-title"><div class="panel-heading"><h2 id="fields-title">Fields</h2><button class="icon-button compact" id="fieldsToggle" type="button" aria-label="Hide Fields" title="Hide Fields">‹</button></div><div id="fieldGroups"><div class="panel-loading">Fields appear after you run a query.</div></div></aside>
+            <div class="results-column">
+              <section class="timeline-panel" id="timeline" tabindex="-1" aria-labelledby="timeline-title"><div class="panel-heading"><h2 id="timeline-title">Timeline</h2><div class="timeline-actions"><button class="icon-button compact timeline-zoom" id="timelineZoomOut" type="button" aria-label="Zoom Out Timeline" title="Zoom Out Timeline"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="5.5"></circle><path d="m15 15 4 4M8 10.5h5"></path></svg></button><button class="icon-button compact timeline-zoom" id="timelineZoomIn" type="button" aria-label="Zoom In Timeline" title="Zoom In Timeline"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="5.5"></circle><path d="m15 15 4 4M8 10.5h5M10.5 8v5"></path></svg></button><span class="timeline-divider" aria-hidden="true"></span><button class="icon-button compact" id="timelineToggle" type="button" aria-label="Collapse Timeline" title="Collapse Timeline">⌃</button></div></div><div class="timeline-chart" id="timelineChart"><div class="chart-loading">Loading Timeline…</div></div><div class="timeline-legend" id="timelineLegend" role="group" aria-label="Timeline Severity Legend"></div><div class="timeline-axis" id="timelineAxis"></div></section>
+              <section class="results-panel" aria-labelledby="results-title"><div class="results-header"><div><div class="results-title-row"><h2 id="results-title">Logs</h2><span class="result-count" id="resultCount">—</span><span class="approximate-badge" id="approximateBadge" title="Caroline searches up to the latest 1,000 log lines per container for the selected interval.">Partial Results</span><span class="refresh-status" id="refreshStatus" role="status" aria-live="polite"></span></div><p id="resultsDescription">Run a Query to see matching log entries.</p></div><div class="results-actions"><button class="text-button" id="wrapButton" type="button" aria-pressed="false">Wrap Lines</button><select class="sort-select" id="sortFilter" aria-label="Sort Results"><option value="desc">Newest First</option><option value="asc">Oldest First</option></select></div></div><div class="results-table-scroll"><div class="results-table-head"><span>TIME</span><span>SEVERITY</span><span>RESOURCE</span><span>SUMMARY</span><span></span></div><div class="entry-list" id="entryList"><div class="empty-state"><span class="empty-state-icon" aria-hidden="true">⌕</span><strong>Run a Query</strong><p>Your matching log entries will appear here.</p></div></div></div><div class="results-footer"><span id="resultsFooter">Logs are read directly from Docker Engine. Up to the last 1,000 lines per container.</span><button class="text-button" id="nextPageButton" type="button" hidden>Load More</button></div></section>
+            </div>
+          </div>
+
+          <div class="error-banner" id="errorBanner" role="alert" aria-live="polite" tabindex="-1" hidden><span class="error-icon" aria-hidden="true">!</span><span class="error-content"><span id="errorMessage"></span><button class="text-button error-details-toggle" id="errorDetailsToggle" type="button" aria-expanded="false" hidden>View Details</button><span class="error-details" id="errorDetails" hidden></span></span><button class="text-button" id="errorDismiss" type="button">Dismiss</button></div>
+          <footer class="page-footer"><span>Caroline for Docker Engine</span><span><span class="footer-dot"></span>Data stays on this host</span></footer>
+        </main>
+      </div>
+    </div>
+
+    <aside class="detail-drawer" id="detailDrawer" role="dialog" aria-modal="true" aria-labelledby="detailTitle" tabindex="-1" hidden><div class="detail-drawer-header"><div><span class="section-kicker">LOG ENTRY</span><h2 id="detailTitle">Entry Details</h2></div><button class="icon-button" id="closeDetailButton" type="button" aria-label="Close Entry Details" title="Close Entry Details">×</button></div><div id="detailBody"></div></aside>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

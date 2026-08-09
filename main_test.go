@@ -4,10 +4,14 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func dockerTestFrame(stream byte, payload string) []byte {
@@ -126,5 +130,88 @@ func TestHandleExplorer(t *testing.T) {
 	}
 	if len(response.Timeline) != 24 || len(response.Fields) == 0 {
 		t.Fatalf("expected timeline and fields, got timeline=%d fields=%d", len(response.Timeline), len(response.Fields))
+	}
+	if response.LogTail != maxLogTail || response.EntryLimit != maxExplorerEntries || response.Truncated {
+		t.Fatalf("unexpected result limits: tail=%d entryLimit=%d truncated=%v", response.LogTail, response.EntryLimit, response.Truncated)
+	}
+
+	firstRequest := httptest.NewRequest(http.MethodGet, "/api/explorer?from=2026-08-09T02:59:00Z&to=2026-08-09T03:03:00Z&limit=1&sort=desc", nil)
+	firstRecorder := httptest.NewRecorder()
+	app.handleExplorer(firstRecorder, firstRequest)
+	if firstRecorder.Code != http.StatusOK {
+		t.Fatalf("first cursor request returned status %d: %s", firstRecorder.Code, firstRecorder.Body.String())
+	}
+	var firstPage explorerResponse
+	if err := json.Unmarshal(firstRecorder.Body.Bytes(), &firstPage); err != nil {
+		t.Fatalf("decode first cursor response: %v", err)
+	}
+	if len(firstPage.Entries) != 1 || firstPage.NextPageToken == "" {
+		t.Fatalf("expected one entry and a next cursor, got entries=%d token=%q", len(firstPage.Entries), firstPage.NextPageToken)
+	}
+
+	nextQuery := url.Values{
+		"from":      {"2026-08-09T02:59:00Z"},
+		"to":        {"2026-08-09T03:03:00Z"},
+		"limit":     {"1"},
+		"sort":      {"desc"},
+		"pageToken": {firstPage.NextPageToken},
+	}
+	secondRequest := httptest.NewRequest(http.MethodGet, "/api/explorer?"+nextQuery.Encode(), nil)
+	secondRecorder := httptest.NewRecorder()
+	app.handleExplorer(secondRecorder, secondRequest)
+	if secondRecorder.Code != http.StatusOK {
+		t.Fatalf("second cursor request returned status %d: %s", secondRecorder.Code, secondRecorder.Body.String())
+	}
+	var secondPage explorerResponse
+	if err := json.Unmarshal(secondRecorder.Body.Bytes(), &secondPage); err != nil {
+		t.Fatalf("decode second cursor response: %v", err)
+	}
+	if len(secondPage.Entries) != 1 || secondPage.Entries[0].InsertID == firstPage.Entries[0].InsertID {
+		t.Fatalf("cursor did not advance: first=%#v second=%#v", firstPage.Entries, secondPage.Entries)
+	}
+}
+
+func TestHandleExplorerLimitsDockerConcurrency(t *testing.T) {
+	containers := make([]dockerContainer, 17)
+	for index := range containers {
+		containers[index] = dockerContainer{
+			ID:     fmt.Sprintf("container-%02d", index),
+			Names:  []string{fmt.Sprintf("/worker-%02d", index)},
+			Image:  "example/worker:latest",
+			State:  "running",
+			Status: "Up 2 minutes",
+		}
+	}
+	var active int32
+	var maximum int32
+	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.URL.Path == "/containers/json":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(containers)
+		default:
+			current := atomic.AddInt32(&active, 1)
+			for {
+				previous := atomic.LoadInt32(&maximum)
+				if current <= previous || atomic.CompareAndSwapInt32(&maximum, previous, current) {
+					break
+				}
+			}
+			time.Sleep(10 * time.Millisecond)
+			atomic.AddInt32(&active, -1)
+			_, _ = w.Write([]byte("2026-08-09T03:00:00Z worker ready\n"))
+		}
+	}))
+	defer testServer.Close()
+
+	app := &server{docker: &dockerClient{client: testServer.Client(), baseURL: testServer.URL}}
+	req := httptest.NewRequest(http.MethodGet, "/api/explorer?from=2026-08-09T02:59:00Z&to=2026-08-09T03:01:00Z&limit=100", nil)
+	recorder := httptest.NewRecorder()
+	app.handleExplorer(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("handleExplorer returned status %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if maximum > maxConcurrentDockerRequests {
+		t.Fatalf("maximum concurrent Docker requests = %d, want <= %d", maximum, maxConcurrentDockerRequests)
 	}
 }

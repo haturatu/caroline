@@ -4,6 +4,7 @@ WORKDIR /web
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY tsconfig.json ./
+COPY public ./public
 COPY src ./src
 RUN npm run build
 
@@ -18,8 +19,7 @@ FROM alpine:3.22
 
 WORKDIR /app
 COPY --from=build /caroline /app/caroline
-COPY static /app/static
-COPY --from=web-build /web/static/app.js /app/static/app.js
+COPY --from=web-build /web/static /app/static
 EXPOSE 8080
 ENV PORT=8080
 ENTRYPOINT ["/app/caroline"]
