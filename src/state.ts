@@ -1,0 +1,28 @@
+import type { AppState } from "./types.js";
+
+export const state: AppState = {
+	query: "",
+	draftQuery: "",
+	searchText: "",
+	showQuery: false,
+	container: "",
+	stream: "",
+	severity: "",
+	duration: "5m",
+	live: true,
+	sort: "desc",
+	wrap: false,
+	pageToken: "",
+	entries: [],
+	containers: [],
+	response: null,
+	loading: false,
+	selectedId: null,
+	fieldsHidden: true,
+	timelineHidden: false,
+	timeFrom: "",
+	timeTo: "",
+	theme: "dark",
+	navExpanded: false,
+	errors: { status: "", explorer: "" },
+};
