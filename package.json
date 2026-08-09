@@ -4,7 +4,8 @@
 	"version": "0.1.0",
 	"type": "module",
 	"scripts": {
-		"build": "tsc",
+		"build": "npm run build:assets && tsc",
+		"build:assets": "rm -rf static && cp -R public static",
 		"typecheck": "tsc --noEmit"
 	},
 	"devDependencies": {

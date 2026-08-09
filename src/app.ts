@@ -1,11 +1,5 @@
-import {
-	buildExplorerURL,
-	fetchExplorer,
-	fetchStatus,
-	hydrateURL,
-	syncURL,
-} from "./api.js";
-import { $$, $ } from "./dom.js";
+import { fetchExplorer, fetchStatus, hydrateURL, syncURL } from "./api.js";
+import { $$, $, escapeHTML } from "./dom.js";
 import { errorText } from "./format.js";
 import {
 	closeQuerySuggestions,
@@ -25,8 +19,16 @@ import { state } from "./state.js";
 import type { Theme } from "./types.js";
 
 let refreshTimer: number | null = null;
+let searchTimer: number | null = null;
+let reloadRequested = false;
 let detailReturnFocusId: string | null = null;
+let navReturnFocus: HTMLElement | null = null;
 let errorContextFocused = false;
+let initialLoadingTimer: number | null = null;
+let initialLoadingVisibleAt = 0;
+
+const loadingShowDelay = 200;
+const loadingMinimumDuration = 350;
 
 function renderErrorBanner(): void {
 	const banner = $("#errorBanner");
@@ -37,7 +39,20 @@ function renderErrorBanner(): void {
 		return;
 	}
 	const wasHidden = banner.hasAttribute("hidden");
-	$("#errorMessage").textContent = messages.join(" · ");
+	$("#errorMessage").textContent = state.errorDetails.length
+		? `Failed to read logs from ${state.errorDetails.length} container${state.errorDetails.length === 1 ? "" : "s"}.`
+		: messages.join(" · ");
+	const detailsToggle = $("#errorDetailsToggle");
+	const details = $("#errorDetails");
+	if (state.errorDetails.length) {
+		detailsToggle.removeAttribute("hidden");
+		details.innerHTML = `<ul>${state.errorDetails.map((detail) => `<li>${escapeHTML(detail)}</li>`).join("")}</ul>`;
+	} else {
+		detailsToggle.setAttribute("hidden", "");
+		detailsToggle.setAttribute("aria-expanded", "false");
+		details.setAttribute("hidden", "");
+		details.innerHTML = "";
+	}
 	banner.removeAttribute("hidden");
 	if (
 		wasHidden &&
@@ -60,6 +75,7 @@ function showError(
 function clearError(source?: "status" | "explorer"): void {
 	if (source) state.errors[source] = "";
 	else state.errors = { status: "", explorer: "" };
+	if (!source || source === "explorer") state.errorDetails = [];
 	renderErrorBanner();
 }
 
@@ -81,7 +97,7 @@ function applyTheme(theme: Theme): void {
 	const themeColor = document.querySelector<HTMLMetaElement>("#themeColor");
 	if (themeColor) themeColor.content = theme === "dark" ? "#202124" : "#f8fafd";
 	$("#themeToggleButton").textContent =
-		theme === "dark" ? "Use light theme" : "Use dark theme";
+		theme === "dark" ? "Use Light Theme" : "Use Dark Theme";
 }
 
 function loadSavedTheme(): Theme {
@@ -94,9 +110,12 @@ function loadSavedTheme(): Theme {
 	}
 }
 
-function closeHeaderMenus(): void {
+function closeHeaderMenus(returnFocus = false): void {
+	const wasOpen = !$("#headerMenu").hasAttribute("hidden");
 	$("#headerMenu").setAttribute("hidden", "");
 	$("#headerMenuButton").setAttribute("aria-expanded", "false");
+	if (returnFocus && wasOpen)
+		$("#headerMenuButton").focus({ preventScroll: true });
 }
 
 function toggleMenu(menu: HTMLElement, trigger: HTMLElement): void {
@@ -105,6 +124,9 @@ function toggleMenu(menu: HTMLElement, trigger: HTMLElement): void {
 	if (willOpen) {
 		menu.removeAttribute("hidden");
 		trigger.setAttribute("aria-expanded", "true");
+		requestAnimationFrame(() =>
+			menu.querySelector<HTMLButtonElement>("button")?.focus(),
+		);
 	}
 }
 
@@ -115,11 +137,45 @@ function focusGlobalSearch(): void {
 		input.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
+function closeMobileOverlay(): void {
+	const fieldsWereOpen = document.body.classList.contains("fields-open");
+	state.navExpanded = false;
+	document.body.classList.remove("nav-expanded", "fields-open");
+	$("#consoleMenuButton").setAttribute("aria-expanded", "false");
+	$("#mobileNavBackdrop").setAttribute("hidden", "");
+	if (navReturnFocus) {
+		navReturnFocus.focus({ preventScroll: true });
+		navReturnFocus = null;
+	}
+	if (fieldsWereOpen) {
+		state.fieldsHidden = true;
+		syncURL();
+		renderAll();
+	}
+}
+
+function toggleMobileNav(): void {
+	if (state.navExpanded) {
+		closeMobileOverlay();
+		return;
+	}
+	navReturnFocus =
+		document.activeElement instanceof HTMLElement
+			? (document.activeElement as HTMLElement)
+			: ($("#consoleMenuButton") as HTMLElement);
+	state.navExpanded = true;
+	document.body.classList.add("nav-expanded");
+	document.body.classList.remove("fields-open");
+	$("#mobileNavBackdrop").removeAttribute("hidden");
+	$("#consoleMenuButton").setAttribute("aria-expanded", "true");
+	requestAnimationFrame(() => $("#logsNavButton").focus());
+}
+
 function setActiveNavigation(id: string): void {
 	$$<HTMLButtonElement>(".side-nav-link").forEach((button) => {
 		const active = button.id === id;
 		button.classList.toggle("active", active);
-		if (active) button.setAttribute("aria-current", "page");
+		if (active) button.setAttribute("aria-current", "location");
 		else button.removeAttribute("aria-current");
 	});
 }
@@ -133,6 +189,14 @@ function focusSection(section: "main-content" | "timeline" | "fields"): void {
 		state.timelineHidden = false;
 		renderAll();
 	}
+	syncURL();
+	if (window.matchMedia("(max-width: 800px)").matches) {
+		closeMobileOverlay();
+		if (section === "fields") {
+			document.body.classList.add("fields-open");
+			$("#mobileNavBackdrop").removeAttribute("hidden");
+		}
+	}
 	const target = $(`#${section}`);
 	target.scrollIntoView({ behavior: "smooth", block: "center" });
 	requestAnimationFrame(() => target.focus({ preventScroll: true }));
@@ -143,6 +207,33 @@ function focusSection(section: "main-content" | "timeline" | "fields"): void {
 				? "timelineNavButton"
 				: "fieldsNavButton",
 	);
+}
+
+function scheduleInitialLoading(): void {
+	initialLoadingVisibleAt = 0;
+	initialLoadingTimer = window.setTimeout(() => {
+		initialLoadingTimer = null;
+		if (state.loading && !state.response) {
+			renderLoading();
+			initialLoadingVisibleAt = performance.now();
+		}
+	}, loadingShowDelay);
+}
+
+async function settleInitialLoading(): Promise<void> {
+	if (initialLoadingTimer !== null) {
+		window.clearTimeout(initialLoadingTimer);
+		initialLoadingTimer = null;
+	}
+	if (initialLoadingVisibleAt > 0) {
+		const elapsed = performance.now() - initialLoadingVisibleAt;
+		const remaining = Math.max(0, loadingMinimumDuration - elapsed);
+		if (remaining > 0)
+			await new Promise<void>((resolve) =>
+				window.setTimeout(resolve, remaining),
+			);
+	}
+	initialLoadingVisibleAt = 0;
 }
 
 async function loadStatus(): Promise<void> {
@@ -174,13 +265,20 @@ async function loadStatus(): Promise<void> {
 }
 
 async function loadExplorer(append = false): Promise<void> {
-	if (state.loading) return;
+	if (state.loading) {
+		reloadRequested = true;
+		return;
+	}
 	state.loading = true;
-	if (!append && !state.response) renderLoading();
-	if (append) renderResultsMeta();
+	state.errorDetails = [];
+	const requestedPageToken = state.pageToken;
+	const showInitialLoading = !append && !state.response;
+	if (showInitialLoading) scheduleInitialLoading();
+	renderResultsMeta();
 	try {
 		const response = await fetchExplorer();
 		state.response = response;
+		state.lastUpdated = response.generatedAt;
 		state.containers = response.containers || [];
 		const incoming = response.entries || [];
 		if (append) {
@@ -193,10 +291,12 @@ async function loadExplorer(append = false): Promise<void> {
 					return true;
 				}),
 			];
-			state.pageToken = response.nextPageToken || "";
 		} else {
 			state.entries = incoming;
 		}
+		state.pageToken =
+			append || requestedPageToken ? response.nextPageToken || "" : "";
+		if (append || requestedPageToken) syncURL();
 		if (
 			state.selectedId &&
 			!state.entries.some((entry) => entry.insertId === state.selectedId)
@@ -205,14 +305,15 @@ async function loadExplorer(append = false): Promise<void> {
 			detailReturnFocusId = null;
 			setDrawerOpen(false);
 		}
+		await settleInitialLoading();
+		state.loading = false;
 		clearError("explorer");
 		renderAll();
-		if (response.errors?.length)
-			showError(
-				`Some containers could not be read: ${response.errors.join(" · ")}`,
-				"explorer",
-			);
+		state.errorDetails = response.errors || [];
+		if (state.errorDetails.length)
+			showError("Some containers could not be read.", "explorer");
 	} catch (error) {
+		await settleInitialLoading();
 		if (!append && !state.response) {
 			state.entries = [];
 			state.loading = false;
@@ -222,6 +323,10 @@ async function loadExplorer(append = false): Promise<void> {
 	} finally {
 		state.loading = false;
 		renderResultsMeta();
+		if (reloadRequested) {
+			reloadRequested = false;
+			void loadExplorer();
+		}
 	}
 }
 
@@ -242,9 +347,49 @@ function runQuery(): void {
 	state.query = ($("#queryInput") as HTMLTextAreaElement).value.trim();
 	state.draftQuery = state.query;
 	state.searchText = ($("#searchAllFields") as HTMLInputElement).value.trim();
+	if (searchTimer !== null) window.clearTimeout(searchTimer);
 	state.pageToken = "";
 	closeQuerySuggestions();
 	syncURL();
+	void loadExplorer();
+}
+
+function scheduleSearch(value: string): void {
+	state.searchText = value;
+	syncURL();
+	if (searchTimer !== null) window.clearTimeout(searchTimer);
+	searchTimer = window.setTimeout(() => {
+		state.pageToken = "";
+		syncURL();
+		void loadExplorer();
+	}, 300);
+}
+
+function resetFilters(): void {
+	state.query = state.draftQuery = "";
+	state.searchText = "";
+	state.container = "";
+	state.stream = "";
+	state.severity = "";
+	state.duration = "5m";
+	state.timeFrom = "";
+	state.timeTo = "";
+	state.showQuery = false;
+	state.pageToken = "";
+	if (searchTimer !== null) window.clearTimeout(searchTimer);
+	clearError();
+	syncURL();
+	renderAll();
+	void loadExplorer();
+}
+
+function setOneHourRange(): void {
+	state.duration = "1h";
+	state.timeFrom = "";
+	state.timeTo = "";
+	state.pageToken = "";
+	syncURL();
+	renderAll();
 	void loadExplorer();
 }
 
@@ -292,11 +437,11 @@ function applyCustomRange(): void {
 	const from = fromDateTimeLocal(
 		($("#customFromInput") as HTMLInputElement).value,
 	);
-	const to = fromDateTimeLocal(
-		($("#customToInput") as HTMLInputElement).value,
-	);
+	const to = fromDateTimeLocal(($("#customToInput") as HTMLInputElement).value);
 	if (!from || !to || new Date(from).getTime() >= new Date(to).getTime()) {
-		showError("The custom time range must include a valid start before its end.");
+		showError(
+			"The custom time range must include a valid start before its end.",
+		);
 		return;
 	}
 	state.timeFrom = from;
@@ -323,7 +468,12 @@ function openDetail(entryId: string): void {
 	detailReturnFocusId = entryId;
 	state.selectedId = entryId;
 	setDrawerOpen(true);
-	renderEntries();
+	$$<HTMLElement>(".entry-row").forEach((row) =>
+		row.classList.toggle(
+			"selected",
+			row.getAttribute("data-entry-id") === entryId,
+		),
+	);
 	renderDetail();
 	if (drawerWasHidden) {
 		const focusCloseButton = () => $("#closeDetailButton").focus();
@@ -336,7 +486,9 @@ function closeDetail(): void {
 	setDrawerOpen(false);
 	state.selectedId = null;
 	renderDetail();
-	renderEntries();
+	$$<HTMLElement>(".entry-row").forEach((row) =>
+		row.classList.remove("selected"),
+	);
 	const returnFocusId = detailReturnFocusId;
 	detailReturnFocusId = null;
 	if (returnFocusId)
@@ -348,7 +500,6 @@ function closeDetail(): void {
 function setupRenderActions(): void {
 	setRenderActions({
 		onToast: toast,
-		onEntrySelect: openDetail,
 		onFieldFilter: (field, value) => {
 			state.query = `${state.query}${state.query ? "\n" : ""}${field} = "${value.replace(/"/g, '\\"')}"`;
 			state.draftQuery = state.query;
@@ -369,26 +520,40 @@ function setupRenderActions(): void {
 	});
 }
 
+function moveEntryFocus(delta: number, edge?: "first" | "last"): void {
+	const rows = $$<HTMLButtonElement>(".entry-row");
+	if (!rows.length) return;
+	const activeIndex = rows.indexOf(document.activeElement as HTMLButtonElement);
+	const selectedIndex = state.selectedId
+		? rows.findIndex((row) => row.dataset.entryId === state.selectedId)
+		: -1;
+	const current = activeIndex >= 0 ? activeIndex : selectedIndex;
+	const targetIndex =
+		edge === "first"
+			? 0
+			: edge === "last"
+				? rows.length - 1
+				: Math.min(
+						rows.length - 1,
+						Math.max(0, (current < 0 ? 0 : current) + delta),
+					);
+	rows[targetIndex].focus();
+}
+
 function setupEvents(): void {
-	$("#consoleMenuButton").addEventListener("click", () => {
-		state.navExpanded = !state.navExpanded;
-		document.body.classList.toggle("nav-expanded", state.navExpanded);
-		$("#consoleMenuButton").setAttribute(
-			"aria-expanded",
-			String(state.navExpanded),
-		);
-	});
-	$("#globalSearchButton").addEventListener("click", focusGlobalSearch);
+	$("#consoleMenuButton").addEventListener("click", toggleMobileNav);
+	$("#mobileNavBackdrop").addEventListener("click", closeMobileOverlay);
 	$("#headerMenuButton").addEventListener("click", () =>
 		toggleMenu($("#headerMenu"), $("#headerMenuButton")),
 	);
 	$("#themeToggleButton").addEventListener("click", () => {
 		applyTheme(state.theme === "dark" ? "light" : "dark");
-		closeHeaderMenus();
+		closeHeaderMenus(true);
 	});
 	$("#refreshButton").addEventListener("click", () => {
 		state.pageToken = "";
-		closeHeaderMenus();
+		syncURL();
+		closeHeaderMenus(true);
 		void loadStatus();
 		void loadExplorer();
 	});
@@ -400,22 +565,14 @@ function setupEvents(): void {
 	);
 	$("#fieldsNavButton").addEventListener("click", () => focusSection("fields"));
 	$("#runQueryButton").addEventListener("click", runQuery);
-	$("#clearQueryButton").addEventListener("click", () => {
-		state.query = state.draftQuery = "";
-		state.searchText = "";
-		state.timeFrom = "";
-		state.timeTo = "";
-		state.pageToken = "";
-		syncURL();
-		renderFilters();
-		void loadExplorer();
-	});
+	$("#clearQueryButton").addEventListener("click", resetFilters);
 	$("#searchAllFields").addEventListener("input", (event: Event) => {
-		state.searchText = (event.target as HTMLInputElement).value;
+		scheduleSearch((event.target as HTMLInputElement).value);
 	});
 	$("#showQueryButton").addEventListener("click", () => {
 		state.showQuery = !state.showQuery;
 		if (!state.showQuery) closeQuerySuggestions();
+		syncURL();
 		renderFilters();
 	});
 	$("#queryInput").addEventListener("input", () => {
@@ -436,6 +593,10 @@ function setupEvents(): void {
 		const target = event.target as Element;
 		if (!target.closest(".query-editor")) closeQuerySuggestions();
 		if (!target.closest(".global-header")) closeHeaderMenus();
+		if (!target.closest(".query-help")) {
+			$("#queryHelpPopover").setAttribute("hidden", "");
+			$("#queryHelpButton").setAttribute("aria-expanded", "false");
+		}
 	});
 	$("#containerFilter").addEventListener("change", (event: Event) => {
 		state.container = (event.target as HTMLSelectElement).value;
@@ -479,11 +640,13 @@ function setupEvents(): void {
 	$("#streamButton").addEventListener("click", () => setLive(!state.live));
 	$("#wrapButton").addEventListener("click", () => {
 		state.wrap = !state.wrap;
+		syncURL();
 		renderEntries();
 	});
 	$("#nextPageButton").addEventListener("click", () => {
 		if (state.response?.nextPageToken) {
 			state.pageToken = state.response.nextPageToken;
+			syncURL();
 			void loadExplorer(true);
 		}
 	});
@@ -491,32 +654,82 @@ function setupEvents(): void {
 	$("#clearCustomRangeButton").addEventListener("click", clearCustomRange);
 	$("#closeDetailButton").addEventListener("click", closeDetail);
 	$("#errorDismiss").addEventListener("click", () => clearError());
+	$("#errorDetailsToggle").addEventListener("click", () => {
+		const button = $("#errorDetailsToggle");
+		const details = $("#errorDetails");
+		const open = details.hasAttribute("hidden");
+		details.toggleAttribute("hidden", !open);
+		button.setAttribute("aria-expanded", String(open));
+	});
+	$("#entryList").addEventListener("click", (event: MouseEvent) => {
+		const target = event.target as Element;
+		const row = target.closest<HTMLButtonElement>(".entry-row");
+		const entryId = row?.dataset.entryId;
+		if (entryId) {
+			openDetail(entryId);
+			return;
+		}
+		const action = target.closest<HTMLElement>("[data-empty-action]")?.dataset
+			.emptyAction;
+		if (action === "reset") resetFilters();
+		if (action === "hour") setOneHourRange();
+	});
 	$("#shareButton").addEventListener("click", () => {
 		const copy = navigator.clipboard?.writeText(window.location.href);
-		if (copy) void copy.then(() => toast("Query link copied."));
+		if (copy) void copy.then(() => toast("Query Link Copied."));
 		else toast("Copy the current URL from the address bar.");
 	});
-	$("#queryHelpButton").addEventListener("click", () =>
-		toast('Use field = value, field >= value, SEARCH("text"), AND, and OR.'),
-	);
+	$("#queryHelpButton").addEventListener("click", () => {
+		const button = $("#queryHelpButton");
+		const popover = $("#queryHelpPopover");
+		const open = popover.hasAttribute("hidden");
+		popover.toggleAttribute("hidden", !open);
+		button.setAttribute("aria-expanded", String(open));
+	});
 	$("#fieldsToggle").addEventListener("click", () => {
 		state.fieldsHidden = !state.fieldsHidden;
+		syncURL();
+		const mobile = window.matchMedia("(max-width: 800px)").matches;
+		document.body.classList.toggle(
+			"fields-open",
+			!state.fieldsHidden && mobile,
+		);
+		if (!state.fieldsHidden && mobile)
+			$("#mobileNavBackdrop").removeAttribute("hidden");
+		else if (state.fieldsHidden)
+			$("#mobileNavBackdrop").setAttribute("hidden", "");
 		renderAll();
 	});
 	$("#timelineToggle").addEventListener("click", () => {
 		state.timelineHidden = !state.timelineHidden;
+		syncURL();
 		renderAll();
 	});
 	$("#timelineZoomOut").addEventListener("click", () => shiftTimelineRange(1));
 	$("#timelineZoomIn").addEventListener("click", () => shiftTimelineRange(-1));
 	window.addEventListener("popstate", () => {
 		hydrateURL();
-		state.pageToken = "";
 		void loadExplorer();
 		setLive(state.live);
 	});
 	document.addEventListener("keydown", (event: KeyboardEvent) => {
 		const activeTag = document.activeElement?.tagName;
+		if (state.navExpanded && event.key === "Tab") {
+			const focusable = $$<HTMLElement>("#sideNav button").filter(
+				(element) => !element.hasAttribute("disabled"),
+			);
+			if (focusable.length) {
+				const first = focusable[0];
+				const last = focusable[focusable.length - 1];
+				if (event.shiftKey && document.activeElement === first) {
+					event.preventDefault();
+					last.focus();
+				} else if (!event.shiftKey && document.activeElement === last) {
+					event.preventDefault();
+					first.focus();
+				}
+			}
+		}
 		if (
 			event.key === "/" &&
 			activeTag !== "INPUT" &&
@@ -528,7 +741,44 @@ function setupEvents(): void {
 		}
 		if (event.key === "Escape") {
 			if (!$("#detailDrawer").hasAttribute("hidden")) closeDetail();
-			else closeHeaderMenus();
+			else if (
+				state.navExpanded ||
+				document.body.classList.contains("fields-open")
+			)
+				closeMobileOverlay();
+			else {
+				closeHeaderMenus(true);
+				$("#queryHelpPopover").setAttribute("hidden", "");
+				$("#queryHelpButton").setAttribute("aria-expanded", "false");
+			}
+		}
+		const inTextControl =
+			activeTag === "INPUT" ||
+			activeTag === "TEXTAREA" ||
+			activeTag === "SELECT" ||
+			(document.activeElement as HTMLElement)?.isContentEditable;
+		const activeRow = document.activeElement?.classList.contains("entry-row");
+		if (!inTextControl && !$("#detailDrawer").hasAttribute("hidden")) return;
+		if (
+			!inTextControl &&
+			(activeRow || event.key === "j" || event.key === "k")
+		) {
+			if (event.key === "ArrowDown" || event.key === "j") {
+				event.preventDefault();
+				moveEntryFocus(1);
+			}
+			if (event.key === "ArrowUp" || event.key === "k") {
+				event.preventDefault();
+				moveEntryFocus(-1);
+			}
+			if (event.key === "Home") {
+				event.preventDefault();
+				moveEntryFocus(0, "first");
+			}
+			if (event.key === "End") {
+				event.preventDefault();
+				moveEntryFocus(0, "last");
+			}
 		}
 		if (event.key === "Tab" && !$("#detailDrawer").hasAttribute("hidden")) {
 			const focusable = $$<HTMLElement>(
@@ -549,6 +799,11 @@ function setupEvents(): void {
 }
 
 hydrateURL();
+if (
+	!new URL(window.location.href).searchParams.has("fields") &&
+	window.innerWidth > 1440
+)
+	state.fieldsHidden = false;
 syncURL();
 setupRenderActions();
 setupEvents();

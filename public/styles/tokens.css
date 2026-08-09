@@ -1,0 +1,32 @@
+:root {
+	color-scheme: dark;
+	--bg: light-dark(#f8fafd, #202124);
+	--surface: light-dark(#fff, #202124);
+	--surface-soft: light-dark(#f1f3f4, #292a2d);
+	--surface-hover: light-dark(#f8f9fa, #303134);
+	--border: light-dark(#dadce0, #3c4043);
+	--border-strong: light-dark(#bdc1c6, #5f6368);
+	--text: light-dark(#202124, #e8eaed);
+	--muted: light-dark(#5f6368, #bdc1c6);
+	--faint: light-dark(#80868b, #9aa0a6);
+	--blue: light-dark(#1a73e8, #8ab4f8);
+	--green: light-dark(#188038, #81c995);
+	--yellow: light-dark(#b06000, #fdd663);
+	--red: light-dark(#c5221f, #f28b82);
+	--blue-soft: color-mix(in oklch, var(--blue) 20%, var(--surface));
+	--green-soft: color-mix(in oklch, var(--green) 18%, var(--surface));
+	--yellow-soft: color-mix(in oklch, var(--yellow) 18%, var(--surface));
+	--red-soft: color-mix(in oklch, var(--red) 20%, var(--surface));
+	--shadow: light-dark(#3c40431c, #0006);
+	--mono:
+		"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	--sans: "IBM Plex Sans", Arial, Helvetica, sans-serif;
+}
+
+:root[data-theme="light"] {
+	color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+	color-scheme: dark;
+}

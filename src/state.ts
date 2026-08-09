@@ -17,6 +17,7 @@ export const state: AppState = {
 	containers: [],
 	response: null,
 	loading: false,
+	lastUpdated: "",
 	selectedId: null,
 	fieldsHidden: true,
 	timelineHidden: false,
@@ -25,4 +26,5 @@ export const state: AppState = {
 	theme: "dark",
 	navExpanded: false,
 	errors: { status: "", explorer: "" },
+	errorDetails: [],
 };

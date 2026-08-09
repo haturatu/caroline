@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"crypto/sha1"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -23,10 +24,12 @@ import (
 )
 
 const (
-	defaultPort    = "8080"
-	maxLogTail     = 1000
-	maxLogPayload  = 8 * 1024 * 1024
-	requestTimeout = 35 * time.Second
+	defaultPort                 = "8080"
+	maxLogTail                  = 1000
+	maxLogPayload               = 8 * 1024 * 1024
+	maxExplorerEntries          = 50000
+	maxConcurrentDockerRequests = 8
+	requestTimeout              = 35 * time.Second
 )
 
 type dockerClient struct {
@@ -116,7 +119,15 @@ type explorerResponse struct {
 	Duration      string           `json:"duration"`
 	Query         string           `json:"query"`
 	Approximate   bool             `json:"approximate"`
+	LogTail       int              `json:"logTail"`
+	EntryLimit    int              `json:"entryLimit"`
+	Truncated     bool             `json:"truncated"`
 	Errors        []string         `json:"errors,omitempty"`
+}
+
+type explorerCursor struct {
+	Timestamp time.Time `json:"timestamp"`
+	InsertID  string    `json:"insertId"`
 }
 
 type statusResponse struct {
@@ -805,9 +816,14 @@ func (s *server) handleExplorer(w http.ResponseWriter, r *http.Request) {
 	if limit > 1000 {
 		limit = 1000
 	}
-	offset := queryInt(r, "pageToken", 0)
-	if offset < 0 {
-		offset = 0
+	var cursor *explorerCursor
+	if value := strings.TrimSpace(r.URL.Query().Get("pageToken")); value != "" {
+		decoded, decodeErr := decodeExplorerCursor(value)
+		if decodeErr != nil {
+			writeError(w, http.StatusBadRequest, decodeErr.Error())
+			return
+		}
+		cursor = &decoded
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), requestTimeout)
@@ -829,14 +845,38 @@ func (s *server) handleExplorer(w http.ResponseWriter, r *http.Request) {
 		entries   []explorerEntry
 		err       error
 	}
-	results := make(chan fetched, len(selectedContainers))
+	results := make(chan fetched)
+	semaphore := make(chan struct{}, maxConcurrentDockerRequests)
 	var wait sync.WaitGroup
 	tail := maxLogTail
+	response := explorerResponse{
+		Entries:     make([]explorerEntry, 0),
+		Containers:  make([]containerInfo, 0, len(containers)),
+		GeneratedAt: time.Now().UTC(),
+		From:        from,
+		To:          to,
+		Duration:    durationName,
+		Query:       query,
+		Approximate: true,
+		LogTail:     maxLogTail,
+		EntryLimit:  maxExplorerEntries,
+	}
+	containerInfos := make(map[string]containerInfo, len(containers))
+	for _, container := range containers {
+		containerInfos[container.ID] = toContainerInfo(container)
+	}
 	for _, container := range selectedContainers {
 		container := container
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
+			select {
+			case semaphore <- struct{}{}:
+				defer func() { <-semaphore }()
+			case <-ctx.Done():
+				results <- fetched{container: container, err: ctx.Err()}
+				return
+			}
 			frames, fetchErr := s.docker.logs(ctx, container.ID, tail, from)
 			if fetchErr != nil {
 				results <- fetched{container: container, err: fetchErr}
@@ -846,7 +886,7 @@ func (s *server) handleExplorer(w http.ResponseWriter, r *http.Request) {
 			for _, frame := range frames {
 				for _, line := range parseLogFrame(frame, container) {
 					entry := toExplorerEntry(line, container)
-					if !entry.Timestamp.Before(from) && !entry.Timestamp.After(to) && (severity == "" || severity == "ALL" || severityRank(entry.Severity) >= severityRank(severity)) && (stream == "" || entry.Stream == stream) && matchesExplorerQuery(entry, query) {
+					if !entry.Timestamp.Before(from) && !entry.Timestamp.After(to) && (severity == "" || severity == "ALL" || strings.EqualFold(entry.Severity, severity)) && (stream == "" || entry.Stream == stream) && matchesExplorerQuery(entry, query) {
 						entries = append(entries, entry)
 					}
 				}
@@ -854,14 +894,10 @@ func (s *server) handleExplorer(w http.ResponseWriter, r *http.Request) {
 			results <- fetched{container: container, entries: entries}
 		}()
 	}
-	wait.Wait()
-	close(results)
-
-	response := explorerResponse{Entries: make([]explorerEntry, 0), Containers: make([]containerInfo, 0, len(containers)), GeneratedAt: time.Now().UTC(), From: from, To: to, Duration: durationName, Query: query, Approximate: true}
-	containerInfos := make(map[string]containerInfo, len(containers))
-	for _, container := range containers {
-		containerInfos[container.ID] = toContainerInfo(container)
-	}
+	go func() {
+		wait.Wait()
+		close(results)
+	}()
 	for result := range results {
 		info := toContainerInfo(result.container)
 		if result.err != nil {
@@ -879,29 +915,58 @@ func (s *server) handleExplorer(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		containerInfos[result.container.ID] = info
+		if len(response.Entries) >= maxExplorerEntries {
+			response.Truncated = true
+			continue
+		}
+		remaining := maxExplorerEntries - len(response.Entries)
+		if len(result.entries) > remaining {
+			response.Entries = append(response.Entries, result.entries[:remaining]...)
+			response.Truncated = true
+			continue
+		}
 		response.Entries = append(response.Entries, result.entries...)
 	}
 	for _, container := range containers {
 		response.Containers = append(response.Containers, containerInfos[container.ID])
 	}
 	if sortOrder == "asc" {
-		sort.Slice(response.Entries, func(i, j int) bool { return response.Entries[i].Timestamp.Before(response.Entries[j].Timestamp) })
+		sort.Slice(response.Entries, func(i, j int) bool {
+			left, right := response.Entries[i], response.Entries[j]
+			if left.Timestamp.Equal(right.Timestamp) {
+				return left.InsertID < right.InsertID
+			}
+			return left.Timestamp.Before(right.Timestamp)
+		})
 	} else {
-		sort.Slice(response.Entries, func(i, j int) bool { return response.Entries[i].Timestamp.After(response.Entries[j].Timestamp) })
+		sort.Slice(response.Entries, func(i, j int) bool {
+			left, right := response.Entries[i], response.Entries[j]
+			if left.Timestamp.Equal(right.Timestamp) {
+				return left.InsertID > right.InsertID
+			}
+			return left.Timestamp.After(right.Timestamp)
+		})
 	}
 	sort.Slice(response.Containers, func(i, j int) bool { return response.Containers[i].Name < response.Containers[j].Name })
 	response.Total = len(response.Entries)
 	response.Timeline = buildTimeline(response.Entries, from, to)
 	response.Fields = buildFieldGroups(response.Entries)
-	if offset < len(response.Entries) {
-		end := offset + limit
-		if end > len(response.Entries) {
-			end = len(response.Entries)
+	start := 0
+	if cursor != nil {
+		for index, entry := range response.Entries {
+			if isAfterExplorerCursor(entry, *cursor, sortOrder) {
+				start = index
+				break
+			}
+			start = len(response.Entries)
 		}
-		page := response.Entries[offset:end]
+	}
+	if start < len(response.Entries) {
+		end := min(start+limit, len(response.Entries))
+		page := response.Entries[start:end]
 		response.Entries = page
 		if end < response.Total {
-			response.NextPageToken = strconv.Itoa(end)
+			response.NextPageToken = encodeExplorerCursor(page[len(page)-1])
 		}
 	} else {
 		response.Entries = []explorerEntry{}
@@ -925,6 +990,39 @@ func matchesContainerSelection(container dockerContainer, selected map[string]bo
 		return true
 	}
 	return selected[containerName(container)]
+}
+
+func encodeExplorerCursor(entry explorerEntry) string {
+	payload, _ := json.Marshal(explorerCursor{
+		Timestamp: entry.Timestamp,
+		InsertID:  entry.InsertID,
+	})
+	return base64.RawURLEncoding.EncodeToString(payload)
+}
+
+func decodeExplorerCursor(value string) (explorerCursor, error) {
+	var cursor explorerCursor
+	payload, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return cursor, fmt.Errorf("invalid page cursor")
+	}
+	if err := json.Unmarshal(payload, &cursor); err != nil || cursor.Timestamp.IsZero() || cursor.InsertID == "" {
+		return cursor, fmt.Errorf("invalid page cursor")
+	}
+	return cursor, nil
+}
+
+func isAfterExplorerCursor(entry explorerEntry, cursor explorerCursor, sortOrder string) bool {
+	if entry.Timestamp.Equal(cursor.Timestamp) {
+		if sortOrder == "asc" {
+			return entry.InsertID > cursor.InsertID
+		}
+		return entry.InsertID < cursor.InsertID
+	}
+	if sortOrder == "asc" {
+		return entry.Timestamp.After(cursor.Timestamp)
+	}
+	return entry.Timestamp.Before(cursor.Timestamp)
 }
 
 func queryInt(r *http.Request, key string, fallback int) int {
@@ -974,7 +1072,16 @@ func main() {
 	address := ":" + port
 	log.Printf("Caroline listening on http://localhost:%s", port)
 	log.Printf("Docker host: %s", dockerHostDescription())
-	if err := http.ListenAndServe(address, loggingMiddleware(mux)); err != nil {
+	srv := &http.Server{
+		Addr:              address,
+		Handler:           loggingMiddleware(mux),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      requestTimeout + 10*time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
+	if err := srv.ListenAndServe(); err != nil {
 		log.Fatal(err)
 	}
 }
