@@ -1,0 +1,23 @@
+# Go build artifacts
+/caroline
+
+# Node.js dependencies
+node_modules/
+
+# Test, coverage, and runtime output
+coverage/
+*.log
+*.out
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Temporary files
+/tmp/
+
+# Editor and operating-system files
+.DS_Store
+.idea/
+.vscode/

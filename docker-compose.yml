@@ -1,0 +1,13 @@
+services:
+  caroline:
+    build: .
+    container_name: caroline
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: 8080
+    volumes:
+      # Caroline only calls read APIs, but the Docker socket itself is the
+      # standard Engine API transport and must be mounted to discover logs.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
