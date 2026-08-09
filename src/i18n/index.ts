@@ -142,10 +142,22 @@ const bindings: Binding[] = [
 		attribute: "aria-label",
 	},
 	{ selector: "#containerFilter + span", key: "filters.container" },
-	{ selector: ".filter-control:nth-child(1) > span", key: "filters.container" },
-	{ selector: ".filter-control:nth-child(2) > span", key: "filters.stream" },
-	{ selector: ".filter-control:nth-child(3) > span", key: "filters.severity" },
-	{ selector: ".filter-control:nth-child(4) > span", key: "filters.time" },
+	{
+		selector: ".refine-row label.filter-control:nth-of-type(1) > span",
+		key: "filters.container",
+	},
+	{
+		selector: ".refine-row label.filter-control:nth-of-type(2) > span",
+		key: "filters.stream",
+	},
+	{
+		selector: ".refine-row label.filter-control:nth-of-type(3) > span",
+		key: "filters.severity",
+	},
+	{
+		selector: ".refine-row label.filter-control:nth-of-type(4) > span",
+		key: "filters.time",
+	},
 	{
 		selector: "#containerFilter",
 		key: "filters.container",

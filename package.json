@@ -6,9 +6,11 @@
 	"scripts": {
 		"build": "npm run build:assets && tsc",
 		"build:assets": "rm -rf static && cp -R public static",
+		"lint": "biome lint src public",
 		"typecheck": "tsc --noEmit"
 	},
 	"devDependencies": {
+		"@biomejs/biome": "2.5.7",
 		"typescript": "5.8.3"
 	}
 }

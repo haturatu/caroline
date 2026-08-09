@@ -201,14 +201,16 @@ export function renderQuerySuggestions(): void {
 		"aria-activedescendant",
 		`query-suggestion-${querySuggestionIndex}`,
 	);
-	$$(".query-suggestion").forEach((button) =>
-		button.addEventListener("mousedown", (event) => event.preventDefault()),
-	);
-	$$(".query-suggestion").forEach((button) =>
-		button.addEventListener("click", () =>
-			applyQuerySuggestion(Number(button.dataset.suggestionIndex)),
-		),
-	);
+	$$(".query-suggestion").forEach((button) => {
+		button.addEventListener("mousedown", (event) => {
+			event.preventDefault();
+		});
+	});
+	$$(".query-suggestion").forEach((button) => {
+		button.addEventListener("click", () => {
+			applyQuerySuggestion(Number(button.dataset.suggestionIndex));
+		});
+	});
 }
 
 function applyQuerySuggestion(index: number): void {

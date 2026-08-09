@@ -119,7 +119,7 @@ export function renderFields(): void {
 			return `<section class="field-group"><div class="field-group-title">${escapeHTML(groupName)}</div>${fields}</section>`;
 		})
 		.join("");
-	$$<HTMLButtonElement>(".field-row").forEach((button) =>
+	$$<HTMLButtonElement>(".field-row").forEach((button) => {
 		button.addEventListener("click", () => {
 			const expanded = !button.classList.contains("expanded");
 			const field = button.dataset.field;
@@ -131,15 +131,15 @@ export function renderFields(): void {
 				else fields.delete(field);
 				state.expandedFields = [...fields];
 			}
-		}),
-	);
-	$$<HTMLButtonElement>(".field-value").forEach((button) =>
+		});
+	});
+	$$<HTMLButtonElement>(".field-value").forEach((button) => {
 		button.addEventListener("click", () => {
 			const field = button.getAttribute("data-field");
 			const value = button.getAttribute("data-value");
 			if (field && value) actions.onFieldFilter?.(field, value);
-		}),
-	);
+		});
+	});
 }
 
 function timelineSegment(

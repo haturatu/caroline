@@ -41,6 +41,17 @@ button {
 	cursor: pointer;
 }
 
+fieldset {
+	min-inline-size: 0;
+	margin: 0;
+	padding: 0;
+	border: 0;
+}
+
+legend {
+	padding: 0;
+}
+
 svg {
 	width: 17px;
 	height: 17px;
