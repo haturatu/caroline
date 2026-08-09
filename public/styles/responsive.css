@@ -155,9 +155,9 @@
 	.icon-button,
 	.icon-button.compact,
 	.header-action,
-		.stream-button,
-		.run-button,
-		.menu-item {
+	.stream-button,
+	.run-button,
+	.menu-item {
 		min-inline-size: 44px;
 		min-block-size: 44px;
 	}

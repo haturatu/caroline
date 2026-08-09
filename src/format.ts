@@ -1,12 +1,14 @@
+import { getLocale, t } from "./i18n/index.js";
+
 export function formatNumber(value: number): string {
-	return new Intl.NumberFormat(undefined).format(value || 0);
+	return new Intl.NumberFormat(getLocale()).format(value || 0);
 }
 
 export function formatTime(value: string): string {
 	const date = new Date(value);
 	return Number.isNaN(date.getTime())
-		? "—"
-		: new Intl.DateTimeFormat(undefined, {
+		? t("common.notAvailable")
+		: new Intl.DateTimeFormat(getLocale(), {
 				dateStyle: "short",
 				timeStyle: "medium",
 			}).format(date);
@@ -15,8 +17,8 @@ export function formatTime(value: string): string {
 export function formatClockTime(value: string): string {
 	const date = new Date(value);
 	return Number.isNaN(date.getTime())
-		? "—"
-		: new Intl.DateTimeFormat(undefined, {
+		? t("common.notAvailable")
+		: new Intl.DateTimeFormat(getLocale(), {
 				hour: "2-digit",
 				minute: "2-digit",
 				second: "2-digit",
@@ -27,8 +29,8 @@ export function formatClockTime(value: string): string {
 export function formatTimelineTick(value: string): string {
 	const date = new Date(value);
 	return Number.isNaN(date.getTime())
-		? "—"
-		: new Intl.DateTimeFormat(undefined, {
+		? t("common.notAvailable")
+		: new Intl.DateTimeFormat(getLocale(), {
 				hour: "2-digit",
 				minute: "2-digit",
 				second: "2-digit",
@@ -44,19 +46,38 @@ export function formatTimelineAxisTick(
 	const date = new Date(value);
 	const start = Date.parse(from);
 	const end = Date.parse(to);
-	if (Number.isNaN(date.getTime()) || !Number.isFinite(start) || !Number.isFinite(end))
-		return "—";
+	if (
+		Number.isNaN(date.getTime()) ||
+		!Number.isFinite(start) ||
+		!Number.isFinite(end)
+	)
+		return t("common.notAvailable");
 
 	const duration = Math.max(0, end - start);
 	const showDate = duration >= 12 * 60 * 60 * 1000;
 	const showWeekday = duration >= 3 * 24 * 60 * 60 * 1000;
-	return new Intl.DateTimeFormat(undefined, {
+	return new Intl.DateTimeFormat(getLocale(), {
 		...(showDate ? { month: "2-digit", day: "2-digit" } : {}),
 		...(showWeekday ? { weekday: "short" } : {}),
 		hour: !showWeekday ? "2-digit" : undefined,
 		minute: !showWeekday ? "2-digit" : undefined,
 		hour12: false,
 	}).format(date);
+}
+
+export function formatTimelineDetail(value: string): string {
+	const date = new Date(value);
+	return Number.isNaN(date.getTime())
+		? t("common.notAvailable")
+		: new Intl.DateTimeFormat(getLocale(), {
+				year: "numeric",
+				month: "2-digit",
+				day: "2-digit",
+				hour: "2-digit",
+				minute: "2-digit",
+				second: "2-digit",
+				hour12: false,
+			}).format(date);
 }
 
 export function severityClass(value: string): string {
@@ -75,5 +96,5 @@ export function severityClass(value: string): string {
 export function errorText(error: unknown): string {
 	return error instanceof Error
 		? error.message
-		: "Something went wrong—try again.";
+		: t("errors.somethingWentWrong");
 }

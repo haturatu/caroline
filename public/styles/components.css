@@ -12,6 +12,26 @@
 	box-shadow: 0 8px 24px var(--shadow);
 }
 
+.language-menu-section {
+	margin-top: 6px;
+	padding-top: 6px;
+	border-top: 1px solid var(--border);
+}
+
+.menu-label {
+	display: block;
+	padding: 5px 9px 4px;
+	color: var(--muted);
+	font-size: 10px;
+	font-weight: 600;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+}
+
+.language-option {
+	font-size: 12px;
+}
+
 .menu-item {
 	display: flex;
 	align-items: center;
