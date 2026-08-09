@@ -123,6 +123,7 @@ export const ja = {
 		hide: "フィールドを隠す",
 		initial: "クエリを実行するとフィールドが表示されます。",
 		noFields: "現在の結果にフィールドがありません。",
+		loading: "フィールドを読み込み中…",
 		systemMetadata: "システムメタデータ",
 		frequentFields: "頻出フィールド",
 	},

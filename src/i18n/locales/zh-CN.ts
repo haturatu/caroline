@@ -122,6 +122,7 @@ export const zhCN = {
 		hide: "隐藏字段",
 		initial: "运行查询后会显示字段。",
 		noFields: "当前结果集中没有字段。",
+		loading: "正在加载字段…",
 		systemMetadata: "系统元数据",
 		frequentFields: "常用字段",
 	},

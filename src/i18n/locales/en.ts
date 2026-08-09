@@ -124,6 +124,7 @@ export const en = {
 		hide: "Hide Fields",
 		initial: "Fields appear after you run a query.",
 		noFields: "No fields were found in the current result set.",
+		loading: "Loading Fields…",
 		systemMetadata: "System Metadata",
 		frequentFields: "Frequent Fields",
 	},
