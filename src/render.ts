@@ -368,26 +368,30 @@ export function renderResultsMeta(): void {
 	const logTail = response?.logTail || 1000;
 	const entryLimit = response?.entryLimit || 50000;
 	$("#resultCount").textContent = response
-		? `${formatNumber(response.total)} Entries`
+		? `${formatNumber(response.total)} entries`
 		: "—";
-	$("#approximateBadge").toggleAttribute("hidden", !response?.approximate);
+	const approximateBadge = $("#approximateBadge");
+	approximateBadge.toggleAttribute("hidden", !response?.approximate);
+	if (response?.approximate) {
+		approximateBadge.title = `Latest ${formatNumber(logTail)} lines per container${response.truncated ? `; result list capped at ${formatNumber(entryLimit)} entries` : ""}`;
+	}
 	$("#resultsDescription").textContent = response
-		? `${formatTime(response.from)} – ${formatTime(response.to)} · ${state.live ? "Auto-refresh every 5s" : "Auto-refresh paused"} · Up to last ${formatNumber(logTail)} lines per container${response.truncated ? ` · Result cap ${formatNumber(entryLimit)} entries` : ""}`
-		: "Run a Query to see matching log entries.";
+		? state.timeFrom
+			? `${formatTime(response.from)} – ${formatTime(response.to)}`
+			: ""
+		: "";
 	$("#refreshStatus").textContent = state.loading
 		? "Refreshing…"
 		: state.errors.explorer
 			? "Refresh failed · Showing previous results"
-		: state.lastUpdated
-			? `Updated ${formatClockTime(state.lastUpdated)}`
-			: "";
+			: state.lastUpdated
+				? `Updated ${formatClockTime(state.lastUpdated)}`
+				: "";
 	const runButton = $("#runQueryButton") as HTMLButtonElement;
 	runButton.dataset.loading = String(state.loading);
 	runButton.disabled = state.loading;
 	runButton.setAttribute("aria-busy", String(state.loading));
-	$("#resultsFooter").textContent = state.live
-		? "Docker Engine · polling every 5 seconds."
-		: "Live refresh is paused.";
+	$("#resultsFooter").textContent = "";
 	const next = $("#nextPageButton") as HTMLButtonElement;
 	next.toggleAttribute("hidden", !response?.nextPageToken);
 	next.disabled = state.loading;
@@ -410,8 +414,12 @@ export function renderAll(): void {
 	$("#streamButton").classList.toggle("paused", !state.live);
 	$("#streamButton").setAttribute("aria-pressed", String(state.live));
 	$("#streamButtonText").textContent = state.live
-		? "Auto-refresh · 5s"
-		: "Auto-refresh paused";
+		? "Streaming"
+		: "Paused";
+	$("#streamButton").setAttribute(
+		"title",
+		state.live ? "Refreshes every 5 seconds" : "Auto-refresh is paused",
+	);
 	$("#fieldsToggle").textContent = state.fieldsHidden ? "›" : "‹";
 	$("#fieldsToggle").setAttribute(
 		"aria-label",

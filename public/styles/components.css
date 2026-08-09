@@ -164,26 +164,35 @@
 .stream-button {
 	display: inline-flex;
 	align-items: center;
-	gap: 7px;
+	gap: 6px;
 	min-height: 32px;
-	padding: 0 9px;
-	color: var(--green);
-	background: var(--green-soft);
-	border: 1px solid #355c42;
+	padding-inline: 6px;
+	color: var(--muted);
+	background: transparent;
+	border: 1px solid transparent;
 	border-radius: 3px;
+}
+
+.stream-button:hover {
+	color: var(--text);
+	background: var(--surface-hover);
 }
 
 .stream-button.paused {
 	color: var(--muted);
-	background: var(--surface-soft);
-	border-color: var(--border);
+	background: transparent;
+	border-color: transparent;
 }
 
 .stream-dot {
 	width: 6px;
 	height: 6px;
-	background: currentcolor;
+	background: var(--green);
 	border-radius: 50%;
+}
+
+.stream-button.paused .stream-dot {
+	background: var(--muted);
 }
 
 .query-editor {
@@ -768,6 +777,10 @@
 	color: var(--muted);
 	border-top: 1px solid var(--border);
 	font-size: 11px;
+}
+
+.results-footer:has(#resultsFooter:empty):has(#nextPageButton[hidden]) {
+	display: none;
 }
 
 .empty-state {
