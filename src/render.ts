@@ -24,7 +24,7 @@ export function setRenderActions(nextActions: RenderActions): void {
 
 export function renderLoading(): void {
 	$("#fieldGroups").innerHTML =
-		`<div class="panel-loading loading-panel"><span class="spinner"></span><span>${t("common.loading")} ${t("fields.title")}…</span></div>`;
+		`<div class="panel-loading loading-panel"><span class="spinner"></span><span>${t("fields.loading")}</span></div>`;
 	$("#timelineChart").innerHTML =
 		`<div class="chart-loading"><span class="spinner"></span><span>${t("timeline.loading")}</span></div>`;
 	$("#timelineAxis").innerHTML = "";
@@ -79,7 +79,7 @@ function toDateTimeLocal(value: string): string {
 export function renderFields(): void {
 	const target = $("#fieldGroups");
 	if (state.loading && !state.response) {
-		target.innerHTML = `<div class="panel-loading loading-panel"><span class="spinner"></span><span>${t("common.loading")} ${t("fields.title")}…</span></div>`;
+		target.innerHTML = `<div class="panel-loading loading-panel"><span class="spinner"></span><span>${t("fields.loading")}</span></div>`;
 		return;
 	}
 	if (!state.response?.fields.length) {

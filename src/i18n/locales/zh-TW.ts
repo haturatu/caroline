@@ -122,6 +122,7 @@ export const zhTW = {
 		hide: "隱藏欄位",
 		initial: "執行查詢後會顯示欄位。",
 		noFields: "目前結果集中沒有欄位。",
+		loading: "正在載入欄位…",
 		systemMetadata: "系統中繼資料",
 		frequentFields: "常用欄位",
 	},
