@@ -13,6 +13,7 @@ import type { ExplorerEntry, RenderActions, TimelineBucket } from "./types.js";
 let actions: RenderActions = {};
 let timelineDragStartX: number | null = null;
 let timelineDragPointerId: number | null = null;
+let timelinePressBar: HTMLButtonElement | null = null;
 let suppressTimelineClick = false;
 
 export function setRenderActions(nextActions: RenderActions): void {
@@ -255,6 +256,7 @@ function cleanupTimelineDrag(chart: HTMLElement): void {
 	}
 	timelineDragStartX = null;
 	timelineDragPointerId = null;
+	timelinePressBar = null;
 	chart.classList.remove("selecting");
 	const selection = chart.querySelector<HTMLElement>(
 		".timeline-drag-selection",
@@ -368,6 +370,10 @@ export function renderTimeline(): void {
 	if (!chart.dataset.dragBound) {
 		chart.addEventListener("pointerdown", (event: PointerEvent) => {
 			if (event.button !== 0 || !state.response?.timeline.length) return;
+			timelinePressBar =
+				event.target instanceof Element
+					? event.target.closest<HTMLButtonElement>(".timeline-bar")
+					: null;
 			timelineDragStartX = timelineXAtClientX(chart, event.clientX);
 			timelineDragPointerId = event.pointerId;
 			chart.setPointerCapture(event.pointerId);
@@ -391,10 +397,23 @@ export function renderTimeline(): void {
 			const startX = timelineDragStartX;
 			const endX = timelineXAtClientX(chart, event.clientX);
 			const distance = Math.abs(endX - startX);
+			const pressedBar = timelinePressBar;
 			const from = timelineTimeAtX(chart, Math.min(startX, endX));
 			const to = timelineTimeAtX(chart, Math.max(startX, endX));
 			cleanupTimelineDrag(chart);
-			if (distance < 4 || from === null || to === null) return;
+			if (distance < 4) {
+				if (pressedBar) {
+					suppressTimelineClick = true;
+					window.setTimeout(() => {
+						suppressTimelineClick = false;
+					}, 50);
+					const start = pressedBar.getAttribute("data-start");
+					const end = pressedBar.getAttribute("data-end");
+					if (start && end) actions.onTimelineSelect?.(start, end);
+				}
+				return;
+			}
+			if (from === null || to === null) return;
 			suppressTimelineClick = true;
 			window.setTimeout(() => {
 				suppressTimelineClick = false;
