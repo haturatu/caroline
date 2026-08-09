@@ -85,29 +85,6 @@
 	border-radius: 4px;
 }
 
-.connection-status {
-	display: inline-flex;
-	align-items: center;
-	gap: 7px;
-	color: var(--muted);
-	font-size: 12px;
-}
-
-.connection-status span:first-child {
-	inline-size: 7px;
-	block-size: 7px;
-	background: var(--yellow);
-	border-radius: 50%;
-}
-
-.connection-status span:first-child.connected {
-	background: var(--green);
-}
-
-.connection-status span:first-child.offline {
-	background: var(--red);
-}
-
 .workspace-layout {
 	display: flex;
 	min-block-size: calc(100vh - 52px);
