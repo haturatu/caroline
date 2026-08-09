@@ -1,256 +1,260 @@
 # Caroline
 
-Caroline は、Docker Engine で現在起動しているコンテナの stdout / stderr を検索・閲覧するための軽量な Web アプリです。Google Cloud Logs Explorer の情報設計に着想を得ていますが、クエリ構文やデータモデルは Docker ログ向けの小さな subset です。
+Caroline is a lightweight web app for searching and inspecting stdout/stderr from currently running Docker containers. It is inspired by the information architecture of Google Cloud Logs Explorer, but its query syntax and data model are intentionally a small subset designed for Docker logs.
 
-## 主な特徴
+See the [Japanese README](README.ja.md).
 
-- 起動中コンテナを自動検出
-- コンテナ、stdout / stderr、severity、時間範囲での絞り込み
-- 全フィールド検索と Caroline Query Syntax による検索
-- Timeline、Fields 集計、ログ詳細 drawer
-- SSE による新着ログの Streaming 表示
-- URL に検索条件を保存する Share Link
-- ダーク / ライトテーマ、モバイル用ナビゲーション
-- Docker Engine への読み取り専用アクセス
+## Why Caroline?
 
-## 起動
+Most of my servers are managed with containers, but I wanted a single place to inspect their logs. When checking logs remotely, I had been using `Beszel` to inspect one container at a time, which was not ideal for log management. Caroline started as a personal tool with a Logs Explorer-like UI/UX, based on the parts of GCP Cloud Logging that I find useful.
+
+The name came from listening to The Velvet Underground's “Caroline” while working on the project.
+
+## Features
+
+- Automatically discovers running containers
+- Filters by container, stdout/stderr stream, severity, and time range
+- Full-field search and Caroline Query Syntax
+- Timeline, field aggregation, and a log detail drawer
+- Streaming display of new logs over SSE
+- Share links that preserve the current search
+- Dark and light themes with mobile navigation
+- English, Japanese, Simplified Chinese, Traditional Chinese, and Russian UI
+- Read-only access to the Docker Engine
+
+## Internationalization
+
+The UI supports English, Japanese, `zh-CN`, `zh-TW`, and Russian. Choose a language from the header menu; the selection is stored in `localStorage` as `caroline-locale`. When no language has been selected, Caroline uses `navigator.languages` and `navigator.language` for detection. Query syntax remains locale-independent, while dates, numbers, and plural forms use the browser's standard `Intl` APIs. The language preference is not included in share links.
+
+## Getting started
 
 ### Docker Compose
 
-```sh
+~~~sh
 docker compose up -d --build
-```
+~~~
 
-ブラウザで <http://localhost:8080> を開きます。
+Open <http://localhost:8080> in a browser.
 
-Compose は `/var/run/docker.sock` を read-only でコンテナへマウントします。Caroline は Docker Engine の GET API のみを使用し、ログや検索結果を永続化しません。
+Compose mounts `/var/run/docker.sock` into the container as read-only. Caroline only uses Docker Engine GET APIs and does not persist logs or search results.
 
-停止する場合:
+To stop Caroline:
 
-```sh
+~~~sh
 docker compose down
-```
+~~~
 
-### ローカルで起動
+### Run locally
 
-必要なもの:
+Requirements:
 
-- Go 1.26 以上
-- Node.js 22 以上と npm
-- 接続可能な Docker Engine
+- Go 1.26 or later
+- Node.js 22 or later and npm
+- An accessible Docker Engine
 
-```sh
+~~~sh
 npm ci
 npm run build
 go run ./cmd/caroline
-```
+~~~
 
-デフォルトでは <http://localhost:8080> で待ち受けます。
+The server listens on <http://localhost:8080> by default.
 
-## 環境変数
+## Environment variables
 
-| 変数 | デフォルト | 説明 |
+| Variable | Default | Description |
 | --- | --- | --- |
-| `PORT` | `8080` | Web サーバーの待受ポート |
-| `DOCKER_HOST` | `unix:///var/run/docker.sock` | Docker Engine の接続先 |
+| `PORT` | `8080` | Port used by the web server |
+| `DOCKER_HOST` | `unix:///var/run/docker.sock` | Docker Engine endpoint |
 
-`DOCKER_HOST` は `unix://`、`tcp://`、`http://`、`https://` の形式に対応しています。TCP / HTTP 接続を使う場合は、Docker Engine 側の認証・TLS・ネットワーク制御を別途設定してください。
+`DOCKER_HOST` supports `unix://`, `tcp://`, `http://`, and `https://` endpoints. When using a TCP or HTTP connection, configure authentication, TLS, and network controls on the Docker Engine side as appropriate.
 
-Docker socket を読めない場合でも Caroline 自体は起動しますが、画面には Docker 接続エラーが表示されます。
+Caroline can start even when the Docker socket cannot be read, but the UI will show a Docker connection error.
 
-## UI の使い方
+## Using the UI
 
 ### Filters
 
-- **Container**: 起動中コンテナを選択
-- **Stream**: `stdout` または `stderr`
-- **Severity**: `Errors`、`Warnings`、`Info`、`Debug` の完全一致
-- **Time**: 5 分、15 分、1 時間、6 時間、24 時間、7 日、またはカスタム範囲
-- **Search Logs**: 全フィールドを対象にしたテキスト検索
+- **Container**: Select running containers
+- **Stream**: `stdout` or `stderr`
+- **Severity**: Exact matches for `Errors`, `Warnings`, `Info`, and `Debug`
+- **Time**: 5 minutes, 15 minutes, 1 hour, 6 hours, 24 hours, 7 days, or a custom range
+- **Search Logs**: Search text across all supported fields
 
-Container、Stream、Severity、Time のプリセット変更は即時に検索します。カスタム時間範囲は From / To を入力して **Apply** を押します。Sort の変更も即時に反映されます。Search Logs は入力停止後 300ms で検索します。
+Preset changes to Container, Stream, Severity, and Time run immediately. For a custom time range, enter From and To and press **Apply**. Sort changes also apply immediately. Search Logs runs 300 ms after input stops.
 
-高度な条件は **Show Query** から編集します。Advanced Query は **Run Query**、またはクエリエディタ上で `Ctrl + Enter` / `Cmd + Enter` を押して実行します。Basic filters と Advanced Query は `AND` で結合されます。
+Edit advanced conditions from **Show Query**. Run an advanced query with **Run Query**, or press `Ctrl + Enter` / `Cmd + Enter` in the query editor. Basic filters and the Advanced Query are combined with `AND`.
 
-**Reset Filters** は検索語、コンテナ、Stream、Severity、時間範囲、Advanced Query を初期状態へ戻します。
+**Reset Filters** returns the search text, container, stream, severity, time range, and Advanced Query to their initial state.
 
 ### Streaming
 
-Streaming が有効なとき、初回検索後に `/api/tail` へ SSE 接続し、新着ログを画面へ追加します。5 秒間隔のポーリングではありません。
+When Streaming is enabled, Caroline opens an SSE connection to `/api/tail` after the initial search and appends new logs to the page. It does not poll every five seconds.
 
-Streaming を停止すると SSE 接続を閉じます。フィルター、時間範囲、sort、クエリを変更した場合は、現在のストリームを閉じて新しい検索結果から再接続します。接続が切れた場合はブラウザの `EventSource` が再接続します。
+Stopping Streaming closes the SSE connection. Changing filters, the time range, sort order, or query closes the current stream and reconnects from a new search result. If the connection drops, the browser's `EventSource` automatically attempts to reconnect.
 
-### Timeline / Fields / Logs
+### Timeline, Fields, and Logs
 
-- **Timeline**: 検索結果を 24 区間に分け、severity 別に表示します。バーのクリック、または範囲ドラッグで時間範囲を変更できます。ズームボタンも利用できます。
-- **Fields**: 検索結果に含まれる System Metadata と Frequent Fields を集計します。フィールドの値をクリックすると、その値を Advanced Query に追加します。
-- **Logs**: 新しい順 / 古い順の切り替え、Wrap Lines、Load More に対応します。
-- 行を選択すると詳細 drawer が開き、Summary、Payload、メタデータ、Entry JSON のコピーを確認できます。
+- **Timeline**: Splits the result range into 24 buckets and displays them by severity. Click a bar or drag across a range to change the time range. Zoom controls are also available.
+- **Fields**: Aggregates System Metadata and Frequent Fields in the result set. Clicking a field value adds it to the Advanced Query.
+- **Logs**: Supports newest/oldest sorting, Wrap Lines, and Load More.
+- Selecting a row opens a detail drawer with the Summary, Payload, metadata, and copyable Entry JSON.
 
-モバイルでは、左上のメニューボタンから Logs、Timeline、Fields を開きます。Fields は bottom sheet として表示されます。
+On mobile, use the menu button in the upper-left corner to open Logs, Timeline, and Fields. Fields appears as a bottom sheet.
 
-### キーボード操作
+### Keyboard shortcuts
 
-- `/`: Search Logs にフォーカス
-- `Ctrl + Enter` / `Cmd + Enter`: Advanced Query を実行
-- `j` / `ArrowDown`: 次のログ行へ移動
-- `k` / `ArrowUp`: 前のログ行へ移動
-- `Home` / `End`: 先頭 / 末尾のログ行へ移動
-- `Escape`: 詳細 drawer、モバイルナビ、メニューを閉じる
+- `/`: Focus Search Logs
+- `Ctrl + Enter` / `Cmd + Enter`: Run the Advanced Query
+- `j` / `ArrowDown`: Move to the next log row
+- `k` / `ArrowUp`: Move to the previous log row
+- `Home` / `End`: Move to the first or last log row
+- `Escape`: Close the detail drawer, mobile navigation, or menu
 
 ## Caroline Query Syntax
 
-Cloud Logging に着想を得ていますが、完全互換ではありません。
+Caroline's query language is inspired by Cloud Logging, but is not fully compatible with it.
 
-```text
+~~~text
 severity >= ERROR
 resource.labels.container_name = "nginx"
 stream = stderr
 SEARCH("timeout")
 jsonPayload.status >= 500
 timestamp >= "2026-08-10T00:00:00Z"
-```
+~~~
 
-### 演算子
+### Operators
 
-対応する演算子は次のとおりです。
+The supported operators are:
 
-```text
+~~~text
 =   !=   :   >   <   >=   <=
-```
+~~~
 
-- `=` / `!=`: 大文字・小文字を区別しない比較
-- `:`: 大文字・小文字を区別しない部分一致
-- `severity` の比較演算子: severity rank による比較
-- `timestamp` の比較演算子: RFC3339 timestamp として比較
-- 改行: `AND` として扱う
-- `AND` / `OR`: 句の結合
+- `=` / `!=`: Case-insensitive comparison
+- `:`: Case-insensitive substring match
+- Comparisons on `severity`: Compare severity ranks
+- Comparisons on `timestamp`: Compare RFC3339 timestamps
+- A newline: Treated as `AND`
+- `AND` / `OR`: Combine clauses
 
-フィールドとして、`severity`、`stream`、`logName`、`resource.type`、`resource.labels.container_name`、`resource.labels.container_id`、`resource.labels.image`、`timestamp`、`labels.*`、`jsonPayload.*`、`textPayload` / `message` を利用できます。`container`、`container.name` などの短縮名にも対応しています。
+Supported fields include `severity`, `stream`, `logName`, `resource.type`, `resource.labels.container_name`, `resource.labels.container_id`, `resource.labels.image`, `timestamp`, `labels.*`, `jsonPayload.*`, and `textPayload` / `message`. Short names such as `container` and `container.name` are also supported.
 
-`SEARCH("text")` は Summary、Text Payload、Log Name、Resource の種類・ラベル、JSON Payload を対象に検索します。`NOT`、括弧による優先順位、正規表現、Cloud Logging 固有の関数には対応していません。
+`SEARCH("text")` searches the Summary, Text Payload, Log Name, resource type and labels, and JSON Payload. `NOT`, parenthesized precedence, regular expressions, and Cloud Logging-specific functions are not supported.
 
-## データモデルと制限
+## Data model and limits
 
-Docker のログ行は、Cloud Logging の LogEntry に近い形式へ正規化されます。
+Docker log lines are normalized into a format similar to a Cloud Logging LogEntry:
 
 - `resource.type`: `docker_container`
-- `resource.labels`: コンテナ名、コンテナ ID、イメージ
+- `resource.labels`: Container name, container ID, and image
 - `logName`: `containers/<container>/<stream>`
-- `severity`: ログ本文のキーワードから推定した `DEBUG` / `INFO` / `WARNING` / `ERROR`
-- `stream`: `stdout` または `stderr`
-- JSON として解釈できる行は `jsonPayload` も保持
+- `severity`: Estimated as `DEBUG`, `INFO`, `WARNING`, or `ERROR` from keywords in the log body
+- `stream`: `stdout` or `stderr`
+- Lines that can be parsed as JSON also retain a `jsonPayload`
 
-severity は Docker が持つ標準属性ではありません。`ERROR`、`FATAL`、`PANIC`、`WARN`、`DEPRECATED`、`DEBUG`、`TRACE` などの本文キーワードから推定します。
+Severity is not a standard Docker attribute. It is estimated from keywords in the log body, including `ERROR`, `FATAL`, `PANIC`, `WARN`, `DEPRECATED`, `DEBUG`, and `TRACE`.
 
-安全に検索量を制限するため、次の上限があります。
+The following limits keep searches bounded:
 
-- コンテナごとの取得対象: 最新 1,000 行
-- 1 レスポンスの最大エントリ数: 50,000 件
-- `/api/explorer` の 1 ページ: 最大 1,000 件（UI は通常 100 件ずつ取得）
-- Docker Engine への検索リクエスト同時実行数: 8
-- Streaming 対象コンテナ数: 8
-- 1 ログ payload / follow frame の上限: 8 MiB
+- Logs read per container: The latest 1,000 lines
+- Maximum entries in one response: 50,000
+- Maximum page size for `/api/explorer`: 1,000 entries (the UI normally requests 100)
+- Concurrent Docker Engine search requests: 8
+- Containers included in Streaming: 8
+- Maximum size of one log payload or follow frame: 8 MiB
 
-そのため、レスポンスの `approximate` は常に近似検索であることを示します。UI の `Partial` 表示から、コンテナごとの取得行数を確認できます。時間範囲を広げても、コンテナの過去ログを無制限に取得することはありません。
+Because of these limits, the response's `approximate` field indicates that the search is approximate. The UI shows this as `Partial`, where the per-container line limit can be inspected. Expanding the time range does not retrieve unlimited historical logs from a container.
 
-ページングには timestamp と insert ID を使った不透明な `nextPageToken` を使用します。次のページを取得するときは、同じ検索条件、時間範囲、sort を維持してください。
+Pagination uses an opaque `nextPageToken` based on the timestamp and insert ID. Keep the same search conditions, time range, and sort order when requesting the next page.
 
 ## API
 
-すべての API は GET に対応し、HEAD も受け付けます。
+All APIs support GET and also accept HEAD requests.
 
 ### `GET /api/health`
 
-Caroline サーバーの稼働確認を返します。
+Returns a health response for the Caroline server.
 
-```json
+~~~json
 {"ok":true,"service":"caroline"}
-```
+~~~
 
 ### `GET /api/status`
 
-Docker Engine への接続状態、Docker version、API version、確認時刻を返します。Docker が停止していても HTTP 200 の status payload を返し、`connected` が `false` になります。
+Returns the Docker Engine connection state, Docker version, API version, and check time. If Docker is stopped, the endpoint still returns an HTTP 200 status payload with `connected` set to `false`.
 
 ### `GET /api/explorer`
 
-検索結果の snapshot を返します。
+Returns a snapshot of search results.
 
-主な query parameter:
+Main query parameters:
 
-| パラメータ | 説明 |
+| Parameter | Description |
 | --- | --- |
-| `duration` | `5m`、`1h`、`7d`、`30d`、Go duration など。最大 30 日 |
-| `from` / `to` | RFC3339 timestamp による範囲指定 |
+| `duration` | `5m`, `1h`, `7d`, `30d`, Go durations, and similar values; maximum 30 days |
+| `from` / `to` | Range specified as RFC3339 timestamps |
 | `q` | Caroline Query Syntax |
-| `severity` | severity フィルター |
+| `severity` | Severity filter |
 | `stream` | `stdout` / `stderr` |
-| `containers` | コンテナ名、短縮 ID、完全 ID。カンマ区切り |
-| `sort` | `asc` または `desc` |
-| `limit` | 1〜1,000。デフォルト 100 |
-| `pageToken` | 前レスポンスの `nextPageToken` |
+| `containers` | Container names, short IDs, or full IDs, comma-separated |
+| `sort` | `asc` or `desc` |
+| `limit` | 1–1,000; default 100 |
+| `pageToken` | The previous response's `nextPageToken` |
 
-例:
+Example:
 
-```sh
+~~~sh
 curl 'http://localhost:8080/api/explorer?duration=15m&limit=100&q=severity%20%3E%3D%20ERROR&sort=desc'
-```
+~~~
 
-レスポンスには `entries` のほか、`containers`、24 区間の `timeline`、`fields`、`total`、`generatedAt`、`from`、`to`、`approximate`、`logTail`、`entryLimit`、`truncated` が含まれます。
+In addition to `entries`, the response includes `containers`, a 24-bucket `timeline`, `fields`, `total`, `generatedAt`, `from`, `to`, `approximate`, `logTail`, `entryLimit`, and `truncated`.
 
 ### `GET /api/tail`
 
-新着ログを Server-Sent Events で返します。
+Returns new logs as Server-Sent Events.
 
-主な query parameter は `since`、`q`、`severity`、`stream`、`containers` です。`since` は RFC3339 timestamp で指定します。
+Main query parameters are `since`, `q`, `severity`, `stream`, and `containers`. `since` is an RFC3339 timestamp.
 
-イベント:
+Events:
 
-- `ready`: 接続時の対象コンテナ数と開始時刻
-- `log`: 新しいログエントリ。data は `/api/explorer` の entry と同じ形式
-- `warning`: Streaming 対象数の上限などの警告
-- `error`: 特定コンテナの Streaming エラー
-- `end`: 全ストリーム終了
+- `ready`: Number of target containers and the stream start time
+- `log`: A new log entry, using the same entry shape as `/api/explorer`
+- `warning`: A warning such as the maximum number of Streaming targets
+- `error`: A Streaming error for a specific container
+- `end`: All streams have ended
 
-接続中は 15 秒ごとに SSE keep-alive comment を送信します。
+An SSE keep-alive comment is sent every 15 seconds while the connection is open.
 
-## 開発
+## Development
 
-フロントエンドの編集対象は `src/*.ts` と `public/` です。`static/` は生成物で Git 管理対象外です。
-
-```sh
+~~~sh
 npm ci
 npm run typecheck
 npm run build
 go test ./...
-```
+~~~
 
-`npm run build` は次の処理を行います。
+### Directory layout
 
-1. `public/` を `static/` へコピー
-1. TypeScript を標準ブラウザ JavaScript へコンパイル
-
-Go サーバーは `static/` を静的ファイルとして配信します。UI は React などのフレームワークを使わず、TypeScript と標準ブラウザ API で構成されています。
-
-### ディレクトリ
-
-```text
+~~~text
 .
-├── cmd/caroline/        # Go のエントリーポイント
-├── internal/docker/     # Docker Engine クライアントとログフレーム処理
-├── internal/explorer/   # 正規化、検索、Timeline、Streaming
-├── internal/httpserver/ # HTTP API、SSE、静的ファイル配信
-├── src/                 # TypeScript ソース
-├── public/              # 追跡対象の HTML / CSS
-├── static/              # npm run build で生成される配信物
+├── cmd/caroline/        # Go entrypoint
+├── internal/docker/     # Docker Engine client and log frame processing
+├── internal/explorer/   # Normalization, search, Timeline, and Streaming
+├── internal/httpserver/ # HTTP API, SSE, and static file serving
+├── src/                 # TypeScript source
+├── public/              # HTML / CSS
+├── static/              # Generated serving assets from npm run build
 ├── Dockerfile
 └── docker-compose.yml
-```
+~~~
 
-## セキュリティと運用上の注意
+## Security and operational notes
 
-認証・認可機能はありません。Docker socket へのアクセス権を持つアプリとして動作するため、8080 番ポートは信頼できるローカルネットワーク内だけで公開してください。TCP の Docker Engine を使う場合は、Caroline の外側で TLS、認証、ファイアウォールを設定してください。
+Caroline has no authentication or authorization. It runs with access to the Docker socket, so expose port 8080 only to a trusted local network. When using a TCP Docker Engine, configure TLS, authentication, and firewall controls outside Caroline.
 
-ログ本文や検索結果は Caroline に保存されません。各リクエストで Docker Engine から読み取り、ブラウザ内の状態として表示します。
+Caroline does not store log bodies or search results. Each request reads from the Docker Engine and displays the result as browser state.
 
-UI は IBM Plex Sans、ログ本文・timestamp・query editor・container ID・field 名などの等幅表示は IBM Plex Mono を使用します。Google Fonts が利用できない場合はシステムフォントへフォールバックします。Container Queries、`subgrid`、CSS Nesting、`dvh`、`light-dark()` などを使用しているため、モダンブラウザで利用してください。
+The UI uses IBM Plex Sans. IBM Plex Mono is reserved for log bodies, timestamps, the query editor, container IDs, field names, and other monospace values. If Google Fonts is unavailable, the UI falls back to system fonts. Caroline uses Container Queries, `subgrid`, CSS Nesting, `dvh`, `light-dark()`, and other modern CSS features, so a relatively recent browser is recommended.
