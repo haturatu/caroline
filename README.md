@@ -40,13 +40,15 @@ Docker Engine のログはコンテナごとに直近 1,000 行だけを取得�
 
 複数コンテナを同時に調べる場合も、Docker Engine へのログ取得は最大 8 件ずつに制限します。取得結果は到着したものから集計するため、全コンテナの取得完了まで結果を別バッファへ溜め込みません。
 
+初期検索・フィルター・Timeline・Fields・ページングは `/api/explorer` のスナップショットで処理し、新着ログは `/api/tail` のSSEで配信します。SSEはDockerの `follow=1` ストリームを使い、ブラウザの `EventSource` が切断時の再接続を行います。1つのSSE接続で追跡するコンテナ数は、Docker Engineへの常時接続数を抑えるため最大8件です。
+
 ## できること
 
 - 起動中コンテナを自動検出し、コンテナごとにログを絞り込み
 - stdout / stderr、時刻、コンテナ名、severity を正規化して一覧表示
 - テキスト検索、Error / Warning / Info / Debug フィルター、15 分〜30 日の時間範囲
 - 行をクリックして完全なメッセージ、コンテナ ID、イベント ID を表示
-- 5 秒ごとの自動更新と Docker daemon 接続状態の表示
+- SSEによる新着ログのライブ表示と Docker daemon 接続状態の表示
 - Share Link、Query Syntax、Fields のフィールド値クリックによるクエリ追加
 
 severity はログ本文の `ERROR`、`WARN`、`FATAL` などの文字列から UI 用に推定しています。ログ本文そのものはホストへ保存せず、画面を開いた時に Docker Engine から取得します。
@@ -56,8 +58,11 @@ severity はログ本文の `ERROR`、`WARN`、`FATAL` などの文字列から 
 - `GET /api/health`
 - `GET /api/status`
 - `GET /api/explorer?duration=5m&limit=100&q=severity%20%3E%3D%20ERROR&severity=ERROR&stream=stderr&containers=id1&sort=desc`
+- `GET /api/tail?since=2026-08-09T03%3A00%3A00Z&q=severity%20%3E%3D%20ERROR&containers=id1`
 
-`/api/explorer` の `nextPageToken` は、次のリクエストの `pageToken` にそのまま渡す不透明なカーソルです。現在の検索条件・時間範囲・sort を変えずに使うことで、ログが更新される間も offset 方式の重複や取りこぼしを避けて続きを取得できます。
+`/api/explorer` の `nextPageToken` は、次のリクエストの `pageToken` にそのまま渡す不透明なカーソルです。現在の検索条件・時間範囲・sort を変えずに使うことで、ログが更新される間も timestamp と insert ID に基づくカーソルで続きを取得できます。
+
+`/api/tail` は `text/event-stream` を返します。`ready`、`log`、`warning`、`error`、`end` イベントを使用し、`log` のdataにExplorerと同じ `explorerEntry` をJSONで送ります。
 
 Docker socket へのアクセス権がない環境では、アプリ自体は起動しますが、画面に接続エラーが表示されます。Compose では通常の Docker 環境で動作するよう socket をマウントしています。
 

@@ -1,5 +1,5 @@
 import { state } from "./state.js";
-import type { ExplorerResponse, Severity } from "./types.js";
+import type { ExplorerEntry, ExplorerResponse, Severity } from "./types.js";
 
 const supportedDurations = ["5m", "15m", "1h", "6h", "24h", "7d"];
 
@@ -111,6 +111,16 @@ export function buildExplorerURL(): string {
 	return `/api/explorer?${params.toString()}`;
 }
 
+export function buildTailURL(since: string): string {
+	const params = new URLSearchParams({ since });
+	const query = buildExplorerQuery();
+	if (query) params.set("q", query);
+	if (state.container) params.set("containers", state.container);
+	if (state.stream) params.set("stream", state.stream);
+	if (state.severity) params.set("severity", state.severity);
+	return `/api/tail?${params.toString()}`;
+}
+
 export type StatusResponse = {
 	connected: boolean;
 	dockerVersion?: string;
@@ -122,4 +132,41 @@ export async function fetchExplorer(): Promise<ExplorerResponse> {
 
 export async function fetchStatus(): Promise<StatusResponse> {
 	return getJSON<StatusResponse>("/api/status");
+}
+
+export type TailHandlers = {
+	onOpen: () => void;
+	onEntry: (entry: ExplorerEntry) => void;
+	onWarning: (message: string) => void;
+	onServerError: (message: string) => void;
+	onDisconnect: () => void;
+};
+
+function eventPayload<T>(event: Event): T | null {
+	const data = (event as MessageEvent<string>).data;
+	if (!data) return null;
+	try {
+		return JSON.parse(data) as T;
+	} catch {
+		return null;
+	}
+}
+
+export function openTail(since: string, handlers: TailHandlers): EventSource {
+	const source = new EventSource(buildTailURL(since));
+	source.addEventListener("open", handlers.onOpen);
+	source.addEventListener("log", (event) => {
+		const entry = eventPayload<ExplorerEntry>(event);
+		if (entry) handlers.onEntry(entry);
+	});
+	source.addEventListener("warning", (event) => {
+		const payload = eventPayload<{ message?: string }>(event);
+		if (payload?.message) handlers.onWarning(payload.message);
+	});
+	source.addEventListener("error", (event) => {
+		const payload = eventPayload<{ message?: string }>(event);
+		if (payload?.message) handlers.onServerError(payload.message);
+		else handlers.onDisconnect();
+	});
+	return source;
 }

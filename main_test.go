@@ -246,3 +246,46 @@ func TestLoggingMiddlewareSkipsSuccessfulResponses(t *testing.T) {
 		t.Fatalf("failed request did not include its status: %q", output.String())
 	}
 }
+
+func TestHandleTailStreamsFollowLogs(t *testing.T) {
+	container := dockerContainer{
+		ID:     "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+		Names:  []string{"/api"},
+		Image:  "example/api:latest",
+		State:  "running",
+		Status: "Up 2 minutes",
+	}
+	var followValue string
+	testServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/containers/json":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode([]dockerContainer{container})
+		case "/containers/" + container.ID + "/logs":
+			followValue = r.URL.Query().Get("follow")
+			if r.URL.Query().Get("tail") != "0" {
+				http.Error(w, "expected tail=0", http.StatusBadRequest)
+				return
+			}
+			_, _ = w.Write(dockerTestFrame(2, "2026-08-09T03:01:00Z ERROR live failure\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer testServer.Close()
+
+	app := &server{docker: &dockerClient{client: testServer.Client(), baseURL: testServer.URL}}
+	req := httptest.NewRequest(http.MethodGet, "/api/tail?since=2026-08-09T03:00:00Z&severity=ERROR", nil)
+	recorder := httptest.NewRecorder()
+	app.handleTail(recorder, req)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("handleTail returned status %d: %s", recorder.Code, recorder.Body.String())
+	}
+	if followValue != "1" {
+		t.Fatalf("follow query = %q, want 1", followValue)
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, "event: ready") || !strings.Contains(body, "event: log") || !strings.Contains(body, "live failure") {
+		t.Fatalf("unexpected SSE body: %s", body)
+	}
+}

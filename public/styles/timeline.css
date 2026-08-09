@@ -37,6 +37,8 @@
 	margin: 0 14px;
 	overflow: hidden;
 	background: var(--surface);
+	touch-action: none;
+	cursor: crosshair;
 }
 
 .timeline-grid {
@@ -63,6 +65,45 @@
 	height: 2px;
 	background: var(--blue);
 	box-shadow: 0 0 0 1px color-mix(in srgb, var(--blue) 10%, transparent);
+}
+
+.timeline-drag-selection {
+	position: absolute;
+	z-index: 2;
+	top: 8px;
+	bottom: 18px;
+	left: 0;
+	display: none;
+	width: 0;
+	background: color-mix(in srgb, var(--blue) 16%, transparent);
+	border-right: 1px solid var(--blue);
+	border-left: 1px solid var(--blue);
+	pointer-events: none;
+}
+
+.timeline-chart.selecting .timeline-drag-selection {
+	display: block;
+}
+
+.timeline-drag-label {
+	position: absolute;
+	z-index: 4;
+	top: 12px;
+	left: 0;
+	display: none;
+	padding: 3px 5px;
+	color: var(--text);
+	background: var(--surface-soft);
+	border: 1px solid var(--border-strong);
+	border-radius: 3px;
+	font: 9px var(--mono);
+	white-space: nowrap;
+	transform: translateX(-50%);
+	pointer-events: none;
+}
+
+.timeline-chart.selecting .timeline-drag-label {
+	display: block;
 }
 
 .timeline-bars {

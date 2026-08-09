@@ -85,7 +85,10 @@ export interface AppState {
 	response: ExplorerResponse | null;
 	loading: boolean;
 	lastUpdated: string;
+	tailConnected: boolean;
+	tailMessage: string;
 	selectedId: string | null;
+	expandedFields: string[];
 	fieldsHidden: boolean;
 	timelineHidden: boolean;
 	timeFrom: string;

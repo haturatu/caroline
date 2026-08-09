@@ -1,4 +1,10 @@
-import { fetchExplorer, fetchStatus, hydrateURL, syncURL } from "./api.js";
+import {
+	fetchExplorer,
+	fetchStatus,
+	hydrateURL,
+	openTail,
+	syncURL,
+} from "./api.js";
 import { $$, $, escapeHTML } from "./dom.js";
 import { errorText } from "./format.js";
 import {
@@ -16,9 +22,10 @@ import {
 	setRenderActions,
 } from "./render.js";
 import { state } from "./state.js";
-import type { Theme } from "./types.js";
+import type { ExplorerEntry, Theme } from "./types.js";
 
-let refreshTimer: number | null = null;
+let tailSource: EventSource | null = null;
+let statusTimer: number | null = null;
 let searchTimer: number | null = null;
 let reloadRequested = false;
 let detailReturnFocusId: string | null = null;
@@ -293,7 +300,72 @@ async function loadStatus(): Promise<void> {
 	}
 }
 
+function closeTail(): void {
+	if (tailSource) tailSource.close();
+	tailSource = null;
+	state.tailConnected = false;
+	state.tailMessage = "";
+}
+
+function appendTailEntry(entry: ExplorerEntry): void {
+	if (state.entries.some((item) => item.insertId === entry.insertId)) return;
+	const entries = [...state.entries, entry].sort((left, right) => {
+		const timestampOrder = Date.parse(left.timestamp) - Date.parse(right.timestamp);
+		if (timestampOrder !== 0)
+			return state.sort === "asc" ? timestampOrder : -timestampOrder;
+		if (state.sort === "asc") return left.insertId.localeCompare(right.insertId);
+		return right.insertId.localeCompare(left.insertId);
+	});
+	const entryLimit = state.response?.entryLimit || 50000;
+	state.entries =
+		entries.length <= entryLimit
+			? entries
+			: state.sort === "asc"
+				? entries.slice(entries.length - entryLimit)
+				: entries.slice(0, entryLimit);
+	if (state.response) {
+		state.response = {
+			...state.response,
+			total: state.response.total + 1,
+		};
+	}
+	state.lastUpdated = new Date().toISOString();
+	renderEntries();
+	renderDetail();
+	renderResultsMeta();
+}
+
+function startTail(since: string): void {
+	if (!state.live) return;
+	closeTail();
+	state.tailMessage = "Connecting to live log stream…";
+	tailSource = openTail(since, {
+		onOpen: () => {
+			state.tailConnected = true;
+			state.tailMessage = "Live stream connected";
+			renderResultsMeta();
+		},
+		onEntry: appendTailEntry,
+		onWarning: (message) => {
+			state.tailMessage = message;
+			renderResultsMeta();
+		},
+		onServerError: (message) => {
+			state.tailMessage = "Live stream error";
+			showError(message, "explorer");
+			renderResultsMeta();
+		},
+		onDisconnect: () => {
+			state.tailConnected = false;
+			state.tailMessage = "Reconnecting live stream…";
+			renderResultsMeta();
+		},
+	});
+	renderResultsMeta();
+}
+
 async function loadExplorer(append = false): Promise<void> {
+	if (!append) closeTail();
 	if (state.loading) {
 		reloadRequested = true;
 		return;
@@ -341,6 +413,7 @@ async function loadExplorer(append = false): Promise<void> {
 		state.errorDetails = response.errors || [];
 		if (state.errorDetails.length)
 			showError("Some containers could not be read.", "explorer");
+		if (!append) startTail(response.generatedAt);
 	} catch (error) {
 		await settleInitialLoading();
 		if (!append && !state.response) {
@@ -362,13 +435,11 @@ async function loadExplorer(append = false): Promise<void> {
 function setLive(value: boolean): void {
 	state.live = value;
 	syncURL();
-	if (refreshTimer !== null) window.clearInterval(refreshTimer);
-	refreshTimer = value
-		? window.setInterval(() => {
-				if (!state.pageToken) void loadExplorer();
-				void loadStatus();
-			}, 5000)
-		: null;
+	if (statusTimer === null) {
+		statusTimer = window.setInterval(() => void loadStatus(), 30000);
+	}
+	if (value && state.response) startTail(state.response.generatedAt);
+	if (!value) closeTail();
 	renderAll();
 }
 

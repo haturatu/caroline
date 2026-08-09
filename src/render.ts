@@ -11,6 +11,9 @@ import { state } from "./state.js";
 import type { ExplorerEntry, RenderActions, TimelineBucket } from "./types.js";
 
 let actions: RenderActions = {};
+let timelineDragStartX: number | null = null;
+let timelineDragPointerId: number | null = null;
+let suppressTimelineClick = false;
 
 export function setRenderActions(nextActions: RenderActions): void {
 	actions = nextActions;
@@ -82,30 +85,45 @@ export function renderFields(): void {
 			'<div class="panel-loading">No fields were found in the current result set.</div>';
 		return;
 	}
+	const availableFields = new Set(
+		state.response.fields.flatMap((group) =>
+			group.fields.map((field) => field.name),
+		),
+	);
+	state.expandedFields = state.expandedFields.filter((field) =>
+		availableFields.has(field),
+	);
+	const expandedFields = new Set(state.expandedFields);
 	target.innerHTML = state.response.fields
-		.map(
-			(group) =>
-				`<section class="field-group"><div class="field-group-title">${escapeHTML(group.name)}</div>${group.fields
-					.map(
-						(field) =>
-							`<button class="field-row" type="button" aria-expanded="false" data-field="${escapeHTML(field.name)}"><span class="field-name" title="${escapeHTML(field.name)}">${escapeHTML(field.name)}</span><span class="field-count">${formatNumber(field.count)}</span></button><div class="field-values">${Object.entries(
-								field.values || {},
-							)
-								.slice(0, 5)
-								.map(
-									([value, count]) =>
-										`<button class="field-value" type="button" data-field="${escapeHTML(field.name)}" data-value="${escapeHTML(value)}">${escapeHTML(value)} <span>(${formatNumber(count)})</span></button>`,
-								)
-								.join("")}</div>`,
-					)
-					.join("")}</section>`,
-		)
+		.map((group) => {
+			const fields = group.fields
+				.map((field) => {
+					const isExpanded = expandedFields.has(field.name);
+					const values = Object.entries(field.values || {})
+						.slice(0, 5)
+						.map(
+							([value, count]) =>
+								`<button class="field-value" type="button" data-field="${escapeHTML(field.name)}" data-value="${escapeHTML(value)}">${escapeHTML(value)} <span>(${formatNumber(count)})</span></button>`,
+						)
+						.join("");
+					return `<button class="field-row${isExpanded ? " expanded" : ""}" type="button" aria-expanded="${isExpanded}" data-field="${escapeHTML(field.name)}"><span class="field-name" title="${escapeHTML(field.name)}">${escapeHTML(field.name)}</span><span class="field-count">${formatNumber(field.count)}</span></button><div class="field-values">${values}</div>`;
+				})
+				.join("");
+			return `<section class="field-group"><div class="field-group-title">${escapeHTML(group.name)}</div>${fields}</section>`;
+		})
 		.join("");
 	$$<HTMLButtonElement>(".field-row").forEach((button) =>
 		button.addEventListener("click", () => {
 			const expanded = !button.classList.contains("expanded");
+			const field = button.dataset.field;
 			button.classList.toggle("expanded", expanded);
 			button.setAttribute("aria-expanded", String(expanded));
+			if (field) {
+				const fields = new Set(state.expandedFields);
+				if (expanded) fields.add(field);
+				else fields.delete(field);
+				state.expandedFields = [...fields];
+			}
 		}),
 	);
 	$$<HTMLButtonElement>(".field-value").forEach((button) =>
@@ -189,6 +207,66 @@ function timelineSelection(response: { from: string; to: string }): {
 	return { left, right: 100 - Math.max(left, end) };
 }
 
+function timelineXAtClientX(chart: HTMLElement, clientX: number): number {
+	const bounds = chart.getBoundingClientRect();
+	return Math.min(bounds.width, Math.max(0, clientX - bounds.left));
+}
+
+function timelineTimeAtX(chart: HTMLElement, x: number): number | null {
+	const response = state.response;
+	if (!response) return null;
+	const from = Date.parse(response.from);
+	const to = Date.parse(response.to);
+	const width = chart.getBoundingClientRect().width;
+	if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from || width <= 0)
+		return null;
+	return from + (x / width) * (to - from);
+}
+
+function updateTimelineDrag(chart: HTMLElement, currentX: number): void {
+	if (timelineDragStartX === null) return;
+	const left = Math.min(timelineDragStartX, currentX);
+	const right = Math.max(timelineDragStartX, currentX);
+	const selection = chart.querySelector<HTMLElement>(
+		".timeline-drag-selection",
+	);
+	const label = chart.querySelector<HTMLElement>(".timeline-drag-label");
+	if (selection) {
+		selection.style.left = `${left}px`;
+		selection.style.width = `${right - left}px`;
+	}
+	const bounds = chart.getBoundingClientRect();
+	if (label && bounds.width > 0) {
+		const from = timelineTimeAtX(chart, left);
+		const to = timelineTimeAtX(chart, right);
+		if (from !== null && to !== null) {
+			label.textContent = `${formatTimelineTick(new Date(from).toISOString())} – ${formatTimelineTick(new Date(to).toISOString())}`;
+			label.style.left = `${((left + right) / 2 / bounds.width) * 100}%`;
+		}
+	}
+}
+
+function cleanupTimelineDrag(chart: HTMLElement): void {
+	if (
+		timelineDragPointerId !== null &&
+		chart.hasPointerCapture(timelineDragPointerId)
+	) {
+		chart.releasePointerCapture(timelineDragPointerId);
+	}
+	timelineDragStartX = null;
+	timelineDragPointerId = null;
+	chart.classList.remove("selecting");
+	const selection = chart.querySelector<HTMLElement>(
+		".timeline-drag-selection",
+	);
+	if (selection) {
+		selection.style.left = "0px";
+		selection.style.width = "0px";
+	}
+	const label = chart.querySelector<HTMLElement>(".timeline-drag-label");
+	if (label) label.textContent = "";
+}
+
 export function renderTimeline(): void {
 	const response = state.response;
 	const chart = $("#timelineChart");
@@ -224,7 +302,7 @@ export function renderTimeline(): void {
 	const initialBucket =
 		response.timeline[Math.floor(response.timeline.length / 2)] ||
 		response.timeline[0];
-	chart.innerHTML = `<div class="timeline-grid" aria-hidden="true"><span></span><span></span><span></span><span></span></div><div class="timeline-selection" style="left:${selection.left}%;right:${selection.right}%" aria-hidden="true"></div><div class="timeline-bars">${bars}</div><div class="timeline-baseline" aria-hidden="true"></div><div class="timeline-cursor" style="left:50%" aria-hidden="true"><span class="timeline-cursor-badge" title="${escapeHTML(timelineBucketLabel(initialBucket))}">${escapeHTML(timelineBucketLabel(initialBucket))}</span></div>`;
+	chart.innerHTML = `<div class="timeline-grid" aria-hidden="true"><span></span><span></span><span></span><span></span></div><div class="timeline-selection" style="left:${selection.left}%;right:${selection.right}%" aria-hidden="true"></div><div class="timeline-drag-selection" aria-hidden="true"></div><span class="timeline-drag-label" aria-hidden="true"></span><div class="timeline-bars">${bars}</div><div class="timeline-baseline" aria-hidden="true"></div><div class="timeline-cursor" style="left:50%" aria-hidden="true"><span class="timeline-cursor-badge" title="${escapeHTML(timelineBucketLabel(initialBucket))}">${escapeHTML(timelineBucketLabel(initialBucket))}</span></div>`;
 	const tickCount = 7;
 	axis.innerHTML = Array.from({ length: tickCount }, (_, index) => {
 		const bucketIndex = Math.min(
@@ -268,6 +346,7 @@ export function renderTimeline(): void {
 			}
 		});
 		chart.addEventListener("mouseleave", () => {
+			if (timelineDragStartX !== null) return;
 			const cursor = chart.querySelector<HTMLElement>(".timeline-cursor");
 			const timeline = state.response?.timeline || [];
 			if (cursor) cursor.style.left = "50%";
@@ -286,6 +365,50 @@ export function renderTimeline(): void {
 		});
 		chart.dataset.cursorBound = "true";
 	}
+	if (!chart.dataset.dragBound) {
+		chart.addEventListener("pointerdown", (event: PointerEvent) => {
+			if (event.button !== 0 || !state.response?.timeline.length) return;
+			timelineDragStartX = timelineXAtClientX(chart, event.clientX);
+			timelineDragPointerId = event.pointerId;
+			chart.setPointerCapture(event.pointerId);
+			chart.classList.add("selecting");
+			updateTimelineDrag(chart, timelineDragStartX);
+		});
+		chart.addEventListener("pointermove", (event: PointerEvent) => {
+			if (
+				timelineDragStartX === null ||
+				timelineDragPointerId !== event.pointerId
+			)
+				return;
+			updateTimelineDrag(chart, timelineXAtClientX(chart, event.clientX));
+		});
+		chart.addEventListener("pointerup", (event: PointerEvent) => {
+			if (
+				timelineDragStartX === null ||
+				timelineDragPointerId !== event.pointerId
+			)
+				return;
+			const startX = timelineDragStartX;
+			const endX = timelineXAtClientX(chart, event.clientX);
+			const distance = Math.abs(endX - startX);
+			const from = timelineTimeAtX(chart, Math.min(startX, endX));
+			const to = timelineTimeAtX(chart, Math.max(startX, endX));
+			cleanupTimelineDrag(chart);
+			if (distance < 4 || from === null || to === null) return;
+			suppressTimelineClick = true;
+			window.setTimeout(() => {
+				suppressTimelineClick = false;
+			}, 50);
+			actions.onTimelineSelect?.(
+				new Date(from).toISOString(),
+				new Date(to).toISOString(),
+			);
+		});
+		chart.addEventListener("pointercancel", () =>
+			cleanupTimelineDrag(chart),
+		);
+		chart.dataset.dragBound = "true";
+	}
 	const setTimelineBadge = (bar: HTMLButtonElement): void => {
 		const timeline = state.response?.timeline || [];
 		const index = Number(bar.dataset.index || 0);
@@ -303,6 +426,7 @@ export function renderTimeline(): void {
 	$$<HTMLButtonElement>(".timeline-bar").forEach((bar) => {
 		bar.addEventListener("focus", () => setTimelineBadge(bar));
 		bar.addEventListener("click", () => {
+			if (suppressTimelineClick) return;
 			const start = bar.getAttribute("data-start");
 			const end = bar.getAttribute("data-end");
 			if (start && end) actions.onTimelineSelect?.(start, end);
@@ -380,13 +504,19 @@ export function renderResultsMeta(): void {
 			? `${formatTime(response.from)} – ${formatTime(response.to)}`
 			: ""
 		: "";
-	$("#refreshStatus").textContent = state.loading
+	const refreshStatus = state.loading
 		? "Refreshing…"
 		: state.errors.explorer
 			? "Refresh failed · Showing previous results"
-			: state.lastUpdated
-				? `Updated ${formatClockTime(state.lastUpdated)}`
-				: "";
+			: state.live
+				? state.tailMessage ||
+					(state.tailConnected
+						? "Live stream connected"
+						: "Connecting to live log stream…")
+				: state.lastUpdated
+					? `Updated ${formatClockTime(state.lastUpdated)}`
+					: "";
+	$("#refreshStatus").textContent = refreshStatus;
 	const runButton = $("#runQueryButton") as HTMLButtonElement;
 	runButton.dataset.loading = String(state.loading);
 	runButton.disabled = state.loading;
@@ -418,7 +548,7 @@ export function renderAll(): void {
 		: "Paused";
 	$("#streamButton").setAttribute(
 		"title",
-		state.live ? "Refreshes every 5 seconds" : "Auto-refresh is paused",
+		state.live ? "Live SSE stream" : "Live stream is paused",
 	);
 	$("#fieldsToggle").textContent = state.fieldsHidden ? "›" : "‹";
 	$("#fieldsToggle").setAttribute(
