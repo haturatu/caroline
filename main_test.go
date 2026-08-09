@@ -247,6 +247,54 @@ func TestLoggingMiddlewareSkipsSuccessfulResponses(t *testing.T) {
 	}
 }
 
+func TestReadOnlyMethodsRejectUnsupportedMethods(t *testing.T) {
+	called := false
+	handler := getOnly(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	})
+	for _, method := range []string{http.MethodPost, http.MethodDelete, http.MethodOptions, http.MethodTrace, http.MethodConnect} {
+		recorder := httptest.NewRecorder()
+		handler(recorder, httptest.NewRequest(method, "/api/status", nil))
+		if recorder.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("%s returned status %d, want 405", method, recorder.Code)
+		}
+		if recorder.Header().Get("Allow") != "GET, HEAD" {
+			t.Fatalf("%s Allow = %q, want GET, HEAD", method, recorder.Header().Get("Allow"))
+		}
+	}
+	unknownRecorder := httptest.NewRecorder()
+	handler(unknownRecorder, httptest.NewRequest("BREW", "/api/status", nil))
+	if unknownRecorder.Code != http.StatusNotImplemented {
+		t.Fatalf("unknown method returned status %d, want 501", unknownRecorder.Code)
+	}
+	if called {
+		t.Fatal("unsupported method reached the handler")
+	}
+
+	headRecorder := httptest.NewRecorder()
+	handler(headRecorder, httptest.NewRequest(http.MethodHead, "/api/status", nil))
+	if headRecorder.Code != http.StatusOK {
+		t.Fatalf("HEAD returned status %d, want 200", headRecorder.Code)
+	}
+	if headRecorder.Header().Get("Content-Type") != "application/json" {
+		t.Fatalf("JSON Content-Type = %q, want application/json", headRecorder.Header().Get("Content-Type"))
+	}
+}
+
+func TestTailSupportsHead(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	getOnly(func(w http.ResponseWriter, r *http.Request) {
+		(&server{}).handleTail(w, r)
+	})(recorder, httptest.NewRequest(http.MethodHead, "/api/tail", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("HEAD /api/tail returned status %d, want 200", recorder.Code)
+	}
+	if recorder.Header().Get("Content-Type") != "text/event-stream" {
+		t.Fatalf("HEAD /api/tail Content-Type = %q, want text/event-stream", recorder.Header().Get("Content-Type"))
+	}
+}
+
 func TestHandleTailStreamsFollowLogs(t *testing.T) {
 	container := dockerContainer{
 		ID:     "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
