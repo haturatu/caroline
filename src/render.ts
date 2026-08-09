@@ -4,11 +4,12 @@ import {
 	formatClockTime,
 	formatTime,
 	formatTimelineAxisTick,
-	formatTimelineTick,
+	formatTimelineDetail,
 	severityClass,
 } from "./format.js";
 import { buildBasicQuery } from "./api.js";
 import { state } from "./state.js";
+import { t, tp } from "./i18n/index.js";
 import type { ExplorerEntry, RenderActions, TimelineBucket } from "./types.js";
 
 let actions: RenderActions = {};
@@ -23,18 +24,18 @@ export function setRenderActions(nextActions: RenderActions): void {
 
 export function renderLoading(): void {
 	$("#fieldGroups").innerHTML =
-		'<div class="panel-loading loading-panel"><span class="spinner"></span><span>Loading Fields…</span></div>';
+		`<div class="panel-loading loading-panel"><span class="spinner"></span><span>${t("common.loading")} ${t("fields.title")}…</span></div>`;
 	$("#timelineChart").innerHTML =
-		'<div class="chart-loading"><span class="spinner"></span><span>Loading Timeline…</span></div>';
+		`<div class="chart-loading"><span class="spinner"></span><span>${t("timeline.loading")}</span></div>`;
 	$("#timelineAxis").innerHTML = "";
 	$("#entryList").innerHTML =
-		'<div class="empty-state"><span class="spinner"></span><strong>Loading Logs…</strong><p>Reading the latest entries from Docker Engine.</p></div>';
+		`<div class="empty-state"><span class="spinner"></span><strong>${t("results.loadingLogs")}</strong><p>${t("results.readingLatest")}</p></div>`;
 }
 
 export function renderFilters(): void {
 	const select = $("#containerFilter") as HTMLSelectElement;
 	const options = [
-		'<option value="">All containers</option>',
+		`<option value="">${t("filters.allContainers")}</option>`,
 		...state.containers.map(
 			(container) =>
 				`<option value="${escapeHTML(container.id)}">${escapeHTML(container.name)}</option>`,
@@ -61,11 +62,11 @@ export function renderFilters(): void {
 	$("#combinedQueryPreview").textContent =
 		[...buildBasicQuery(), state.draftQuery.trim()]
 			.filter(Boolean)
-			.join(" AND ") || "All Logs";
+			.join(" AND ") || t("query.allLogs");
 	$("#queryEditor").toggleAttribute("hidden", !state.showQuery);
 	$("#showQueryButton").textContent = state.showQuery
-		? "Hide Query"
-		: "Show Query";
+		? t("query.hideQuery")
+		: t("query.showQuery");
 }
 
 function toDateTimeLocal(value: string): string {
@@ -78,13 +79,11 @@ function toDateTimeLocal(value: string): string {
 export function renderFields(): void {
 	const target = $("#fieldGroups");
 	if (state.loading && !state.response) {
-		target.innerHTML =
-			'<div class="panel-loading loading-panel"><span class="spinner"></span><span>Loading Fields…</span></div>';
+		target.innerHTML = `<div class="panel-loading loading-panel"><span class="spinner"></span><span>${t("common.loading")} ${t("fields.title")}…</span></div>`;
 		return;
 	}
 	if (!state.response?.fields.length) {
-		target.innerHTML =
-			'<div class="panel-loading">No fields were found in the current result set.</div>';
+		target.innerHTML = `<div class="panel-loading">${t("fields.noFields")}</div>`;
 		return;
 	}
 	const availableFields = new Set(
@@ -111,7 +110,13 @@ export function renderFields(): void {
 					return `<button class="field-row${isExpanded ? " expanded" : ""}" type="button" aria-expanded="${isExpanded}" data-field="${escapeHTML(field.name)}"><span class="field-name" title="${escapeHTML(field.name)}">${escapeHTML(field.name)}</span><span class="field-count">${formatNumber(field.count)}</span></button><div class="field-values">${values}</div>`;
 				})
 				.join("");
-			return `<section class="field-group"><div class="field-group-title">${escapeHTML(group.name)}</div>${fields}</section>`;
+			const groupName =
+				group.name === "System Metadata"
+					? t("fields.systemMetadata")
+					: group.name === "Frequent Fields"
+						? t("fields.frequentFields")
+						: group.name;
+			return `<section class="field-group"><div class="field-group-title">${escapeHTML(groupName)}</div>${fields}</section>`;
 		})
 		.join("");
 	$$<HTMLButtonElement>(".field-row").forEach((button) =>
@@ -145,47 +150,49 @@ function timelineSegment(
 	return `<span class="timeline-segment ${className}" style="height:${Math.max(0, ((bucket.severities[name] || 0) / Math.max(1, bucket.total)) * 100)}%"></span>`;
 }
 
-function timelineBucketLabel(
-	bucket: TimelineBucket,
-	range?: { from: string; to: string },
-): string {
+function timelineBucketLabel(bucket: TimelineBucket): string {
 	const start = Date.parse(bucket.start);
 	const end = Date.parse(bucket.end);
 	const midpoint =
 		Number.isNaN(start) || Number.isNaN(end)
 			? bucket.start
 			: new Date((start + end) / 2).toISOString();
-	const tick = range
-		? formatTimelineAxisTick(midpoint, range.from, range.to)
-		: formatTimelineTick(midpoint);
-	return `${tick} · ${formatNumber(bucket.total)} entries`;
+	return `${formatTimelineDetail(midpoint)} · ${tp("timeline.entriesSummary", bucket.total)}`;
 }
 
 function timelineBucketAriaLabel(bucket: TimelineBucket): string {
 	const severityLabels: Record<string, string> = {
-		ERROR: "errors",
-		WARNING: "warnings",
-		INFO: "info",
-		DEBUG: "debug",
+		ERROR: t("timeline.error"),
+		WARNING: t("timeline.warning"),
+		INFO: t("timeline.info"),
+		DEBUG: t("timeline.debug"),
 	};
 	const breakdown = ["ERROR", "WARNING", "INFO", "DEBUG"]
 		.filter((severity) => (bucket.severities[severity] || 0) > 0)
-		.map(
-			(severity) =>
-				`${formatNumber(bucket.severities[severity] || 0)} ${severityLabels[severity]}`,
+		.map((severity) =>
+			t("timeline.severityCount", {
+				count: formatNumber(bucket.severities[severity] || 0),
+				severity: severityLabels[severity],
+			}),
 		)
 		.join(", ");
-	return `${formatTime(bucket.start)} to ${formatTime(bucket.end)}. ${formatNumber(bucket.total)} entries${breakdown ? `: ${breakdown}` : ": no severity breakdown"}. Select this interval.`;
+	return t("timeline.bucketAria", {
+		from: formatTime(bucket.start),
+		to: formatTime(bucket.end),
+		entries: tp("timeline.entriesSummary", bucket.total),
+		breakdown: breakdown || t("timeline.noSeverityBreakdown"),
+	});
 }
 
-function timelineDayBoundaries(response: {
-	from: string;
-	to: string;
-}): string {
+function timelineDayBoundaries(response: { from: string; to: string }): string {
 	const start = Date.parse(response.from);
 	const end = Date.parse(response.to);
 	const duration = end - start;
-	if (!Number.isFinite(start) || !Number.isFinite(end) || duration < 3 * 24 * 60 * 60 * 1000)
+	if (
+		!Number.isFinite(start) ||
+		!Number.isFinite(end) ||
+		duration < 3 * 24 * 60 * 60 * 1000
+	)
 		return "";
 
 	const firstBoundary = new Date(start);
@@ -209,10 +216,10 @@ function timelineDayBoundaries(response: {
 function renderTimelineLegend(): void {
 	const legend = $("#timelineLegend");
 	legend.innerHTML = [
-		["error", "Errors"],
-		["warning", "Warnings"],
-		["info", "Info"],
-		["debug", "Debug"],
+		["error", t("timeline.error")],
+		["warning", t("timeline.warning")],
+		["info", t("timeline.info")],
+		["debug", t("timeline.debug")],
 	]
 		.map(
 			([className, label]) =>
@@ -254,7 +261,12 @@ function timelineTimeAtX(chart: HTMLElement, x: number): number | null {
 	const from = Date.parse(response.from);
 	const to = Date.parse(response.to);
 	const width = chart.getBoundingClientRect().width;
-	if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from || width <= 0)
+	if (
+		!Number.isFinite(from) ||
+		!Number.isFinite(to) ||
+		to <= from ||
+		width <= 0
+	)
 		return null;
 	return from + (x / width) * (to - from);
 }
@@ -277,7 +289,7 @@ function updateTimelineDrag(chart: HTMLElement, currentX: number): void {
 		const to = timelineTimeAtX(chart, right);
 		const response = state.response;
 		if (from !== null && to !== null && response) {
-			label.textContent = `${formatTimelineAxisTick(new Date(from).toISOString(), response.from, response.to)} – ${formatTimelineAxisTick(new Date(to).toISOString(), response.from, response.to)}`;
+			label.textContent = `${formatTimelineDetail(new Date(from).toISOString())} – ${formatTimelineDetail(new Date(to).toISOString())}`;
 			label.style.left = `${((left + right) / 2 / bounds.width) * 100}%`;
 		}
 	}
@@ -310,15 +322,13 @@ export function renderTimeline(): void {
 	const chart = $("#timelineChart");
 	const axis = $("#timelineAxis");
 	if (state.loading && !response) {
-		chart.innerHTML =
-			'<div class="chart-loading"><span class="spinner"></span><span>Loading Timeline…</span></div>';
+		chart.innerHTML = `<div class="chart-loading"><span class="spinner"></span><span>${t("timeline.loading")}</span></div>`;
 		axis.innerHTML = "";
 		$("#timelineLegend").innerHTML = "";
 		return;
 	}
 	if (!response?.timeline.length) {
-		chart.innerHTML =
-			'<div class="chart-loading">No timeline data for this query.</div>';
+		chart.innerHTML = `<div class="chart-loading">${t("timeline.noData")}</div>`;
 		axis.innerHTML = "";
 		$("#timelineLegend").innerHTML = "";
 		return;
@@ -342,10 +352,9 @@ export function renderTimeline(): void {
 		response.timeline[0];
 	const range = { from: response.from, to: response.to };
 	const isLongRange =
-		Date.parse(response.to) - Date.parse(response.from) >=
-		12 * 60 * 60 * 1000;
+		Date.parse(response.to) - Date.parse(response.from) >= 12 * 60 * 60 * 1000;
 	const dayBoundaries = timelineDayBoundaries(range);
-	chart.innerHTML = `<div class="timeline-grid" aria-hidden="true"><span></span><span></span><span></span><span></span></div><div class="timeline-day-boundaries" aria-hidden="true">${dayBoundaries}</div><div class="timeline-selection" style="left:${selection.left}%;right:${selection.right}%" aria-hidden="true"></div><div class="timeline-drag-selection" aria-hidden="true"></div><span class="timeline-drag-label" aria-hidden="true"></span><div class="timeline-bars">${bars}</div><div class="timeline-baseline" aria-hidden="true"></div><div class="timeline-cursor" style="left:50%" aria-hidden="true"><span class="timeline-cursor-badge" title="${escapeHTML(timelineBucketLabel(initialBucket, range))}">${escapeHTML(timelineBucketLabel(initialBucket, range))}</span></div>`;
+	chart.innerHTML = `<div class="timeline-grid" aria-hidden="true"><span></span><span></span><span></span><span></span></div><div class="timeline-day-boundaries" aria-hidden="true">${dayBoundaries}</div><div class="timeline-selection" style="left:${selection.left}%;right:${selection.right}%" aria-hidden="true"></div><div class="timeline-drag-selection" aria-hidden="true"></div><span class="timeline-drag-label" aria-hidden="true"></span><div class="timeline-bars">${bars}</div><div class="timeline-baseline" aria-hidden="true"></div><div class="timeline-cursor" style="left:50%" aria-hidden="true"><span class="timeline-cursor-badge" title="${escapeHTML(timelineBucketLabel(initialBucket))}">${escapeHTML(timelineBucketLabel(initialBucket))}</span></div>`;
 	const tickCount = isLongRange ? 5 : 7;
 	axis.innerHTML = Array.from({ length: tickCount }, (_, index) => {
 		const bucketIndex = Math.min(
@@ -378,10 +387,7 @@ export function renderTimeline(): void {
 							Math.floor(position * timeline.length),
 						)
 					];
-				const label = timelineBucketLabel(bucket, {
-					from: state.response?.from || "",
-					to: state.response?.to || "",
-				});
+				const label = timelineBucketLabel(bucket);
 				const badge = chart.querySelector<HTMLElement>(
 					".timeline-cursor-badge",
 				);
@@ -403,10 +409,6 @@ export function renderTimeline(): void {
 				if (badge) {
 					const label = timelineBucketLabel(
 						timeline[Math.floor(timeline.length / 2)],
-						{
-							from: state.response?.from || "",
-							to: state.response?.to || "",
-						},
 					);
 					badge.textContent = label;
 					badge.title = label;
@@ -471,9 +473,7 @@ export function renderTimeline(): void {
 				new Date(to).toISOString(),
 			);
 		});
-		chart.addEventListener("pointercancel", () =>
-			cleanupTimelineDrag(chart),
-		);
+		chart.addEventListener("pointercancel", () => cleanupTimelineDrag(chart));
 		chart.dataset.dragBound = "true";
 	}
 	const setTimelineBadge = (bar: HTMLButtonElement): void => {
@@ -486,10 +486,7 @@ export function renderTimeline(): void {
 		if (cursor)
 			cursor.style.left = `${((index + 0.5) / timeline.length) * 100}%`;
 		if (badge) {
-			const label = timelineBucketLabel(bucket, {
-				from: state.response?.from || "",
-				to: state.response?.to || "",
-			});
+			const label = timelineBucketLabel(bucket);
 			badge.textContent = label;
 			badge.title = label;
 		}
@@ -516,22 +513,22 @@ export function entrySummary(entry: ExplorerEntry): string {
 export function renderEntries(): void {
 	const list = $("#entryList");
 	if (state.loading && !state.response) {
-		list.innerHTML =
-			'<div class="empty-state"><span class="spinner"></span><strong>Loading Logs…</strong><p>Reading the latest entries from Docker Engine.</p></div>';
+		list.innerHTML = `<div class="empty-state"><span class="spinner"></span><strong>${t("results.loadingLogs")}</strong><p>${t("results.readingLatest")}</p></div>`;
 		return;
 	}
 	if (!state.entries.length) {
 		list.innerHTML = state.response
-			? '<div class="empty-state"><span class="empty-state-icon" aria-hidden="true">⌕</span><strong>No Logs Match These Filters</strong><p>Try a broader time range or a less specific query.</p><div class="empty-state-actions"><button class="text-button" type="button" data-empty-action="reset">Reset Filters</button><button class="text-button" type="button" data-empty-action="hour">Last 1 Hour</button></div></div>'
-			: '<div class="empty-state"><span class="empty-state-icon" aria-hidden="true">⌕</span><strong>Run a Query</strong><p>Your matching log entries will appear here.</p></div>';
+			? `<div class="empty-state"><span class="empty-state-icon" aria-hidden="true">⌕</span><strong>${t("results.noMatchTitle")}</strong><p>${t("results.noMatchDescription")}</p><div class="empty-state-actions"><button class="text-button" type="button" data-empty-action="reset">${t("results.resetFilters")}</button><button class="text-button" type="button" data-empty-action="hour">${t("results.lastHour")}</button></div></div>`
+			: `<div class="empty-state"><span class="empty-state-icon" aria-hidden="true">⌕</span><strong>${t("results.runAQuery")}</strong><p>${t("results.matchingEntries")}</p></div>`;
 		return;
 	}
 	list.classList.toggle("wrap-lines", state.wrap);
 	list.innerHTML = state.entries
-		.map(
-			(entry) =>
-				`<button class="entry-row ${state.selectedId === entry.insertId ? "selected" : ""}" type="button" data-entry-id="${escapeHTML(entry.insertId)}" aria-label="${escapeHTML(`${entry.severity} log from ${entry.resource.labels.container_name}: ${entrySummary(entry)}`)}"><span class="entry-time">${escapeHTML(formatTime(entry.timestamp))}</span><span class="entry-severity ${severityClass(entry.severity)}">${escapeHTML(entry.severity)}</span><span class="entry-resource"><span class="resource-name">${escapeHTML(entry.resource.labels.container_name || "Unknown Container")}</span><span class="resource-meta">${escapeHTML(entry.stream)} · ${escapeHTML(entry.resource.type)}</span></span><span class="entry-summary" title="${escapeHTML(entrySummary(entry))}">${escapeHTML(entrySummary(entry))}</span><span class="entry-open"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></span></button>`,
-		)
+		.map((entry) => {
+			const containerName =
+				entry.resource.labels.container_name || t("common.unknownContainer");
+			return `<button class="entry-row ${state.selectedId === entry.insertId ? "selected" : ""}" type="button" data-entry-id="${escapeHTML(entry.insertId)}" aria-label="${escapeHTML(`${entry.severity} log from ${containerName}: ${entrySummary(entry)}`)}"><span class="entry-time">${escapeHTML(formatTime(entry.timestamp))}</span><span class="entry-severity ${severityClass(entry.severity)}">${escapeHTML(entry.severity)}</span><span class="entry-resource"><span class="resource-name">${escapeHTML(containerName)}</span><span class="resource-meta">${escapeHTML(entry.stream)} · ${escapeHTML(entry.resource.type)}</span></span><span class="entry-summary" title="${escapeHTML(entrySummary(entry))}">${escapeHTML(entrySummary(entry))}</span><span class="entry-open"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></span></button>`;
+		})
 		.join("");
 }
 
@@ -549,12 +546,12 @@ export function renderDetail(): void {
 		textPayload: entry.textPayload || entry.summary,
 	};
 	$("#detailTitle").textContent =
-		`${entry.severity} · ${entry.resource.labels.container_name || "Container Log"}`;
+		`${entry.severity} · ${entry.resource.labels.container_name || t("common.containerLog")}`;
 	$("#detailBody").innerHTML =
-		`<section class="detail-section"><span class="detail-label">Timestamp</span><div class="detail-value">${escapeHTML(formatTime(entry.timestamp))}</div></section><section class="detail-section"><span class="detail-label">Summary</span><div class="detail-value">${escapeHTML(entrySummary(entry))}</div></section><section class="detail-section"><span class="detail-label">Payload</span><pre class="detail-code">${escapeHTML(JSON.stringify(payload, null, 2))}</pre></section><section class="detail-section"><span class="detail-label">Log Entry Metadata</span><div class="detail-meta"><div class="detail-meta-row"><span>Insert ID</span><strong>${escapeHTML(entry.insertId)}</strong></div><div class="detail-meta-row"><span>Log Name</span><strong>${escapeHTML(entry.logName)}</strong></div><div class="detail-meta-row"><span>Resource Type</span><strong>${escapeHTML(entry.resource.type)}</strong></div><div class="detail-meta-row"><span>Stream</span><strong>${escapeHTML(entry.stream)}</strong></div></div></section><button class="run-button" id="copyEntryButton" type="button">Copy Entry JSON</button>`;
+		`<section class="detail-section"><span class="detail-label">${t("detail.timestamp")}</span><div class="detail-value">${escapeHTML(formatTime(entry.timestamp))}</div></section><section class="detail-section"><span class="detail-label">${t("detail.summary")}</span><div class="detail-value">${escapeHTML(entrySummary(entry))}</div></section><section class="detail-section"><span class="detail-label">${t("detail.payload")}</span><pre class="detail-code">${escapeHTML(JSON.stringify(payload, null, 2))}</pre></section><section class="detail-section"><span class="detail-label">${t("detail.metadata")}</span><div class="detail-meta"><div class="detail-meta-row"><span>${t("detail.insertId")}</span><strong>${escapeHTML(entry.insertId)}</strong></div><div class="detail-meta-row"><span>${t("detail.logName")}</span><strong>${escapeHTML(entry.logName)}</strong></div><div class="detail-meta-row"><span>${t("detail.resourceType")}</span><strong>${escapeHTML(entry.resource.type)}</strong></div><div class="detail-meta-row"><span>${t("detail.stream")}</span><strong>${escapeHTML(entry.stream)}</strong></div></div></section><button class="run-button" id="copyEntryButton" type="button">${t("detail.copyEntry")}</button>`;
 	$("#copyEntryButton").addEventListener("click", () => {
 		const copy = navigator.clipboard?.writeText(JSON.stringify(entry, null, 2));
-		if (copy) void copy.then(() => actions.onToast?.("Entry JSON copied."));
+		if (copy) void copy.then(() => actions.onToast?.(t("detail.copied")));
 	});
 }
 
@@ -563,12 +560,12 @@ export function renderResultsMeta(): void {
 	const logTail = response?.logTail || 1000;
 	const entryLimit = response?.entryLimit || 50000;
 	$("#resultCount").textContent = response
-		? `${formatNumber(response.total)} entries`
-		: "—";
+		? tp("results.entries", response.total)
+		: t("common.notAvailable");
 	const approximateBadge = $("#approximateBadge");
 	approximateBadge.toggleAttribute("hidden", !response?.approximate);
 	if (response?.approximate) {
-		approximateBadge.title = `Latest ${formatNumber(logTail)} lines per container${response.truncated ? `; result list capped at ${formatNumber(entryLimit)} entries` : ""}`;
+		approximateBadge.title = `${t("results.partialTitle", { lines: formatNumber(logTail) })}${response.truncated ? t("results.resultListCapped", { entries: formatNumber(entryLimit) }) : ""}`;
 	}
 	$("#resultsDescription").textContent = response
 		? state.timeFrom
@@ -576,16 +573,16 @@ export function renderResultsMeta(): void {
 			: ""
 		: "";
 	const refreshStatus = state.loading
-		? "Refreshing…"
+		? t("results.refreshing")
 		: state.errors.explorer
-			? "Refresh failed · Showing previous results"
+			? t("results.refreshFailed")
 			: state.live
 				? state.tailMessage ||
 					(state.tailConnected
-						? "Live stream connected"
-						: "Connecting to live log stream…")
+						? t("results.liveConnected")
+						: t("results.connecting"))
 				: state.lastUpdated
-					? `Updated ${formatClockTime(state.lastUpdated)}`
+					? t("results.updated", { time: formatClockTime(state.lastUpdated) })
 					: "";
 	$("#refreshStatus").textContent = refreshStatus;
 	const runButton = $("#runQueryButton") as HTMLButtonElement;
@@ -597,10 +594,10 @@ export function renderResultsMeta(): void {
 	next.toggleAttribute("hidden", !response?.nextPageToken);
 	next.disabled = state.loading;
 	next.textContent = state.loading
-		? "Loading…"
+		? t("results.loading")
 		: response?.nextPageToken
-			? "Load More"
-			: "No More Results";
+			? t("results.loadMore")
+			: t("results.noMoreResults");
 }
 
 export function renderAll(): void {
@@ -615,19 +612,29 @@ export function renderAll(): void {
 	$("#streamButton").classList.toggle("paused", !state.live);
 	$("#streamButton").setAttribute("aria-pressed", String(state.live));
 	$("#streamButtonText").textContent = state.live
-		? "Streaming"
-		: "Paused";
+		? t("results.streaming")
+		: t("results.paused");
 	$("#streamButton").setAttribute(
 		"title",
-		state.live ? "Live SSE stream" : "Live stream is paused",
+		state.live ? t("results.liveStream") : t("results.liveStreamPaused"),
 	);
 	$("#fieldsToggle").textContent = state.fieldsHidden ? "›" : "‹";
 	$("#fieldsToggle").setAttribute(
 		"aria-label",
-		state.fieldsHidden ? "Show Fields" : "Hide Fields",
+		state.fieldsHidden ? t("fields.show") : t("fields.hide"),
 	);
 	$("#fieldsToggle").setAttribute(
 		"title",
-		state.fieldsHidden ? "Show Fields" : "Hide Fields",
+		state.fieldsHidden ? t("fields.show") : t("fields.hide"),
+	);
+	const timelineToggle = $("#timelineToggle");
+	timelineToggle.textContent = state.timelineHidden ? "⌄" : "⌃";
+	timelineToggle.setAttribute(
+		"aria-label",
+		state.timelineHidden ? t("timeline.expand") : t("timeline.collapse"),
+	);
+	timelineToggle.setAttribute(
+		"title",
+		state.timelineHidden ? t("timeline.expand") : t("timeline.collapse"),
 	);
 }

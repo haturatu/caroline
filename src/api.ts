@@ -1,4 +1,5 @@
 import { state } from "./state.js";
+import { t } from "./i18n/index.js";
 import type { ExplorerEntry, ExplorerResponse, Severity } from "./types.js";
 
 const supportedDurations = ["5m", "15m", "1h", "6h", "24h", "7d"];
@@ -40,8 +41,13 @@ export async function getJSON<T>(url: string): Promise<T> {
 	const payload = (await response.json().catch(() => ({}))) as {
 		error?: string;
 	};
-	if (!response.ok)
-		throw new Error(payload.error || `Request failed (${response.status})`);
+	if (!response.ok) {
+		if (payload.error?.startsWith("Docker daemon is unavailable"))
+			throw new Error(t("status.connectionError"));
+		throw new Error(
+			payload.error || t("errors.requestFailed", { status: response.status }),
+		);
+	}
 	return payload as T;
 }
 

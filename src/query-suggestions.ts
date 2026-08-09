@@ -1,18 +1,22 @@
 import { $$, $, escapeHTML } from "./dom.js";
+import { t } from "./i18n/index.js";
 import { state } from "./state.js";
 import type { QuerySuggestion } from "./types.js";
 
 const queryFields = [
-	{ name: "severity", detail: "Log severity" },
-	{ name: "resource.labels.container_name", detail: "Container name" },
-	{ name: "resource.labels.container_id", detail: "Container ID" },
-	{ name: "resource.labels.image", detail: "Container image" },
-	{ name: "resource.type", detail: "Resource type" },
-	{ name: "logName", detail: "Log name" },
-	{ name: "stream", detail: "stdout or stderr" },
-	{ name: "textPayload", detail: "Plain-text payload" },
-	{ name: "jsonPayload.field", detail: "JSON payload field" },
-	{ name: "timestamp", detail: "Log timestamp" },
+	{ name: "severity", detail: "suggestions.severity" },
+	{
+		name: "resource.labels.container_name",
+		detail: "suggestions.containerName",
+	},
+	{ name: "resource.labels.container_id", detail: "suggestions.containerId" },
+	{ name: "resource.labels.image", detail: "suggestions.image" },
+	{ name: "resource.type", detail: "suggestions.resourceType" },
+	{ name: "logName", detail: "suggestions.logName" },
+	{ name: "stream", detail: "suggestions.stream" },
+	{ name: "textPayload", detail: "suggestions.textPayload" },
+	{ name: "jsonPayload.field", detail: "suggestions.jsonField" },
+	{ name: "timestamp", detail: "suggestions.timestamp" },
 ];
 const queryOperators = ["=", "!=", ":", ">=", "<=", ">", "<"];
 let visibleQuerySuggestions: QuerySuggestion[] = [];
@@ -80,7 +84,7 @@ function valueSuggestions(
 	return matchingSuggestions(
 		[...new Set(values)].map((value) => ({
 			label: value,
-			detail: `${field} value`,
+			detail: t("suggestions.fieldValue", { field }),
 			replacement: `"${value.replace(/"/g, '\\"')}"`,
 			replaceStart: start,
 			replaceEnd: end,
@@ -96,7 +100,7 @@ function operatorSuggestions(
 ): QuerySuggestion[] {
 	return queryOperators.map((operator) => ({
 		label: `${field} ${operator}`,
-		detail: "Query operator",
+		detail: t("suggestions.operator"),
 		replacement: `${field} ${operator} `,
 		replaceStart: start,
 		replaceEnd: end,
@@ -129,7 +133,7 @@ function buildQuerySuggestions(input: HTMLTextAreaElement): QuerySuggestion[] {
 
 	const fields = queryFields.map((field) => ({
 		label: field.name,
-		detail: field.detail,
+		detail: t(field.detail),
 		replacement: field.name,
 		replaceStart: tokenStart,
 		replaceEnd: input.selectionStart,
@@ -137,21 +141,21 @@ function buildQuerySuggestions(input: HTMLTextAreaElement): QuerySuggestion[] {
 	const keywords: QuerySuggestion[] = [
 		{
 			label: "AND",
-			detail: "Combine with the next clause",
+			detail: t("suggestions.and"),
 			replacement: "AND ",
 			replaceStart: tokenStart,
 			replaceEnd: input.selectionStart,
 		},
 		{
 			label: "OR",
-			detail: "Match either clause",
+			detail: t("suggestions.or"),
 			replacement: "OR ",
 			replaceStart: tokenStart,
 			replaceEnd: input.selectionStart,
 		},
 		{
 			label: 'SEARCH("")',
-			detail: "Search across log fields",
+			detail: t("suggestions.search"),
 			replacement: 'SEARCH("")',
 			cursorOffset: 8,
 			replaceStart: tokenStart,

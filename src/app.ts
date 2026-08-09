@@ -8,6 +8,13 @@ import {
 import { $$, $, escapeHTML } from "./dom.js";
 import { errorText } from "./format.js";
 import {
+	getLocale,
+	isSupportedLocale,
+	setLocale,
+	t,
+	tp,
+} from "./i18n/index.js";
+import {
 	closeQuerySuggestions,
 	handleQueryKeydown,
 	renderQuerySuggestions,
@@ -48,7 +55,7 @@ function renderErrorBanner(): void {
 	}
 	const wasHidden = banner.hasAttribute("hidden");
 	$("#errorMessage").textContent = state.errorDetails.length
-		? `Failed to read logs from ${state.errorDetails.length} container${state.errorDetails.length === 1 ? "" : "s"}.`
+		? tp("errors.containerRead", state.errorDetails.length)
 		: messages.join(" · ");
 	const detailsToggle = $("#errorDetailsToggle");
 	const details = $("#errorDetails");
@@ -105,7 +112,7 @@ function applyTheme(theme: Theme): void {
 	const themeColor = document.querySelector<HTMLMetaElement>("#themeColor");
 	if (themeColor) themeColor.content = theme === "dark" ? "#202124" : "#f8fafd";
 	$("#themeToggleButton").textContent =
-		theme === "dark" ? "Use Light Theme" : "Use Dark Theme";
+		theme === "dark" ? t("theme.useLight") : t("theme.useDark");
 }
 
 function loadSavedTheme(): Theme {
@@ -276,18 +283,17 @@ async function loadStatus(): Promise<void> {
 	try {
 		const status = await fetchStatus();
 		$("#sideEngineStatus").textContent = status.connected
-			? "Docker Connected"
-			: "Docker Unavailable";
+			? t("status.connected")
+			: t("status.unavailable");
 		$("#sideEngineVersion").textContent = status.connected
-			? `Engine ${status.dockerVersion || "Unknown"}`
-			: "Mount Docker socket";
+			? t("status.engineVersion", {
+					version: status.dockerVersion || t("status.unknownVersion"),
+				})
+			: t("status.mountDockerSocket");
 		if (status.connected) {
 			clearError("status");
 		} else {
-			showError(
-				"Docker is unavailable. Start Docker and mount /var/run/docker.sock into Caroline.",
-				"status",
-			);
+			showError(t("status.connectionError"), "status");
 		}
 	} catch (error) {
 		showError(errorText(error), "status");
@@ -304,10 +310,12 @@ function closeTail(): void {
 function appendTailEntry(entry: ExplorerEntry): void {
 	if (state.entries.some((item) => item.insertId === entry.insertId)) return;
 	const entries = [...state.entries, entry].sort((left, right) => {
-		const timestampOrder = Date.parse(left.timestamp) - Date.parse(right.timestamp);
+		const timestampOrder =
+			Date.parse(left.timestamp) - Date.parse(right.timestamp);
 		if (timestampOrder !== 0)
 			return state.sort === "asc" ? timestampOrder : -timestampOrder;
-		if (state.sort === "asc") return left.insertId.localeCompare(right.insertId);
+		if (state.sort === "asc")
+			return left.insertId.localeCompare(right.insertId);
 		return right.insertId.localeCompare(left.insertId);
 	});
 	const entryLimit = state.response?.entryLimit || 50000;
@@ -332,11 +340,11 @@ function appendTailEntry(entry: ExplorerEntry): void {
 function startTail(since: string): void {
 	if (!state.live) return;
 	closeTail();
-	state.tailMessage = "Connecting to live log stream…";
+	state.tailMessage = t("results.connecting");
 	tailSource = openTail(since, {
 		onOpen: () => {
 			state.tailConnected = true;
-			state.tailMessage = "Live stream connected";
+			state.tailMessage = t("results.liveConnected");
 			renderResultsMeta();
 		},
 		onEntry: appendTailEntry,
@@ -345,13 +353,13 @@ function startTail(since: string): void {
 			renderResultsMeta();
 		},
 		onServerError: (message) => {
-			state.tailMessage = "Live stream error";
+			state.tailMessage = t("errors.liveError");
 			showError(message, "explorer");
 			renderResultsMeta();
 		},
 		onDisconnect: () => {
 			state.tailConnected = false;
-			state.tailMessage = "Reconnecting live stream…";
+			state.tailMessage = t("errors.reconnecting");
 			renderResultsMeta();
 		},
 	});
@@ -406,7 +414,7 @@ async function loadExplorer(append = false): Promise<void> {
 		renderAll();
 		state.errorDetails = response.errors || [];
 		if (state.errorDetails.length)
-			showError("Some containers could not be read.", "explorer");
+			showError(t("errors.someContainers"), "explorer");
 		if (!append) startTail(response.generatedAt);
 	} catch (error) {
 		await settleInitialLoading();
@@ -533,9 +541,7 @@ function applyCustomRange(): void {
 	);
 	const to = fromDateTimeLocal(($("#customToInput") as HTMLInputElement).value);
 	if (!from || !to || new Date(from).getTime() >= new Date(to).getTime()) {
-		showError(
-			"The custom time range must include a valid start before its end.",
-		);
+		showError(t("errors.customRange"));
 		return;
 	}
 	state.timeFrom = from;
@@ -614,6 +620,32 @@ function setupRenderActions(): void {
 			renderAll();
 			void loadExplorer();
 		},
+	});
+}
+
+function setupLocale(): void {
+	$$<HTMLButtonElement>("[data-locale]").forEach((button) => {
+		button.addEventListener("click", () => {
+			const value = button.dataset.locale;
+			if (!isSupportedLocale(value)) return;
+			setLocale(value);
+			state.tailMessage = "";
+			$$<HTMLButtonElement>("[data-locale]").forEach((option) => {
+				option.classList.toggle("selected", option === button);
+				if (option === button) option.setAttribute("aria-current", "true");
+				else option.removeAttribute("aria-current");
+			});
+			renderAll();
+			renderErrorBanner();
+			applyTheme(state.theme);
+			closeHeaderMenus(true);
+		});
+	});
+	const current = getLocale();
+	$$<HTMLButtonElement>("[data-locale]").forEach((button) => {
+		const selected = button.dataset.locale === current;
+		button.classList.toggle("selected", selected);
+		if (selected) button.setAttribute("aria-current", "true");
 	});
 }
 
@@ -773,8 +805,8 @@ function setupEvents(): void {
 	});
 	$("#shareButton").addEventListener("click", () => {
 		const copy = navigator.clipboard?.writeText(window.location.href);
-		if (copy) void copy.then(() => toast("Query Link Copied."));
-		else toast("Copy the current URL from the address bar.");
+		if (copy) void copy.then(() => toast(t("common.linkCopied")));
+		else toast(t("errors.copyCurrentURL"));
 	});
 	$("#queryHelpButton").addEventListener("click", () => {
 		const button = $("#queryHelpButton");
@@ -895,7 +927,7 @@ function setupEvents(): void {
 	});
 }
 
-	hydrateURL();
+hydrateURL();
 if (
 	!new URL(window.location.href).searchParams.has("fields") &&
 	window.innerWidth > 1440
@@ -904,6 +936,8 @@ if (
 syncURL();
 setupRenderActions();
 setupEvents();
+setLocale(getLocale());
+setupLocale();
 applyTheme(loadSavedTheme());
 syncMobileFieldsOverlay();
 setLive(state.live);
