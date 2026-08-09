@@ -5,11 +5,14 @@
 		"moduleResolution": "bundler",
 		"lib": ["ES2020", "DOM", "DOM.Iterable"],
 		"strict": true,
+		"jsx": "react",
+		"jsxFactory": "h",
+		"jsxFragmentFactory": "Fragment",
 		"noEmitOnError": true,
 		"outDir": "static",
 		"rootDir": "src",
 		"removeComments": false,
 		"sourceMap": false
 	},
-	"include": ["src/**/*.ts"]
+	"include": ["src/**/*.ts", "src/**/*.tsx"]
 }

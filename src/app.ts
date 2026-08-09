@@ -515,13 +515,6 @@ function setDrawerOpen(open: boolean): void {
 	document.body.classList.toggle("drawer-open", open);
 }
 
-function toDateTimeLocal(value: string): string {
-	const date = new Date(value);
-	if (Number.isNaN(date.getTime())) return "";
-	const pad = (part: number) => String(part).padStart(2, "0");
-	return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-}
-
 function fromDateTimeLocal(value: string): string {
 	const date = new Date(value);
 	return Number.isNaN(date.getTime()) ? "" : date.toISOString();
@@ -568,12 +561,12 @@ function openDetail(entryId: string): void {
 	detailReturnFocusId = entryId;
 	state.selectedId = entryId;
 	setDrawerOpen(true);
-	$$<HTMLElement>(".entry-row").forEach((row) =>
+	$$<HTMLElement>(".entry-row").forEach((row) => {
 		row.classList.toggle(
 			"selected",
 			row.getAttribute("data-entry-id") === entryId,
-		),
-	);
+		);
+	});
 	renderDetail();
 	if (drawerWasHidden) {
 		const focusCloseButton = () => $("#closeDetailButton").focus();
@@ -586,9 +579,9 @@ function closeDetail(): void {
 	setDrawerOpen(false);
 	state.selectedId = null;
 	renderDetail();
-	$$<HTMLElement>(".entry-row").forEach((row) =>
-		row.classList.remove("selected"),
-	);
+	$$<HTMLElement>(".entry-row").forEach((row) => {
+		row.classList.remove("selected");
+	});
 	const returnFocusId = detailReturnFocusId;
 	detailReturnFocusId = null;
 	if (returnFocusId)
