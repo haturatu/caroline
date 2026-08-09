@@ -1,4 +1,5 @@
 # Caroline
+<img width="1341" height="629" alt="top" src="https://github.com/user-attachments/assets/d89ad9db-64fa-45c4-93af-3e7329bdca6e" />
 
 Caroline は、Docker Engine で現在起動しているコンテナの stdout / stderr を検索・閲覧するための軽量な Web アプリです。Google Cloud Logs Explorer の情報設計に着想を得ていますが、クエリ構文やデータモデルは Docker ログ向けの小さな subset です。
 
