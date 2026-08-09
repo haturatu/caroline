@@ -29,12 +29,15 @@ const (
 	maxLogPayload               = 8 * 1024 * 1024
 	maxExplorerEntries          = 50000
 	maxConcurrentDockerRequests = 8
+	maxConcurrentTailStreams    = 8
 	requestTimeout              = 35 * time.Second
+	maxTailFramePayload         = 8 * 1024 * 1024
 )
 
 type dockerClient struct {
-	client  *http.Client
-	baseURL string
+	client       *http.Client
+	followClient *http.Client
+	baseURL      string
 }
 
 type dockerContainer struct {
@@ -188,8 +191,9 @@ func newDockerClient() *dockerClient {
 	}
 
 	return &dockerClient{
-		client:  &http.Client{Transport: transport, Timeout: requestTimeout},
-		baseURL: baseURL,
+		client:       &http.Client{Transport: transport, Timeout: requestTimeout},
+		followClient: &http.Client{Transport: transport},
+		baseURL:      baseURL,
 	}
 }
 
@@ -255,6 +259,112 @@ func (d *dockerClient) logs(ctx context.Context, containerID string, tail int, s
 		return nil, fmt.Errorf("docker API returned %s: %s", resp.Status, strings.TrimSpace(string(message)))
 	}
 	return readDockerFrames(resp.Body)
+}
+
+func (d *dockerClient) followLogs(ctx context.Context, containerID string, since time.Time, onFrame func(dockerFrame) error) error {
+	params := url.Values{}
+	params.Set("stdout", "1")
+	params.Set("stderr", "1")
+	params.Set("timestamps", "1")
+	params.Set("follow", "1")
+	params.Set("tail", "0")
+	if !since.IsZero() {
+		params.Set("since", since.UTC().Format(time.RFC3339Nano))
+	}
+
+	endpoint := "/containers/" + url.PathEscape(containerID) + "/logs?" + params.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, d.baseURL+endpoint, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "application/vnd.docker.raw-stream")
+	client := d.followClient
+	if client == nil {
+		client = d.client
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		message, _ := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
+		return fmt.Errorf("docker API returned %s: %s", resp.Status, strings.TrimSpace(string(message)))
+	}
+	return streamDockerFrames(resp.Body, onFrame)
+}
+
+func streamDockerFrames(body io.Reader, onFrame func(dockerFrame) error) error {
+	reader := bufio.NewReaderSize(body, 32*1024)
+	peek, err := reader.Peek(8)
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, bufio.ErrBufferFull) {
+		return err
+	}
+	if len(peek) < 8 || !isDockerMultiplexed(peek) {
+		return streamRawDockerFrames(reader, onFrame)
+	}
+
+	for {
+		header := make([]byte, 8)
+		_, err := io.ReadFull(reader, header)
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		length := int(binary.BigEndian.Uint32(header[4:]))
+		if length < 0 || length > maxTailFramePayload {
+			return fmt.Errorf("docker follow frame is too large (%d bytes)", length)
+		}
+		payload := make([]byte, length)
+		if _, err := io.ReadFull(reader, payload); err != nil {
+			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+				return nil
+			}
+			return err
+		}
+		stream := "stdout"
+		if header[0] == 2 {
+			stream = "stderr"
+		}
+		if err := onFrame(dockerFrame{stream: stream, data: payload}); err != nil {
+			return err
+		}
+	}
+}
+
+func isDockerMultiplexed(header []byte) bool {
+	return len(header) >= 8 && (header[0] == 1 || header[0] == 2) && header[1] == 0 && header[2] == 0 && header[3] == 0
+}
+
+func streamRawDockerFrames(reader *bufio.Reader, onFrame func(dockerFrame) error) error {
+	line := make([]byte, 0, 256)
+	for {
+		chunk, err := reader.ReadSlice('\n')
+		if len(chunk) > 0 {
+			if len(line)+len(chunk) > maxTailFramePayload {
+				return fmt.Errorf("docker follow line is too large")
+			}
+			line = append(line, chunk...)
+			if chunk[len(chunk)-1] == '\n' {
+				if callbackErr := onFrame(dockerFrame{stream: "stdout", data: line}); callbackErr != nil {
+					return callbackErr
+				}
+				line = line[:0]
+			}
+		}
+		if err == nil || errors.Is(err, bufio.ErrBufferFull) {
+			continue
+		}
+		if errors.Is(err, io.EOF) {
+			if len(line) > 0 {
+				return onFrame(dockerFrame{stream: "stdout", data: line})
+			}
+			return nil
+		}
+		return err
+	}
 }
 
 func readDockerFrames(body io.Reader) ([]dockerFrame, error) {
@@ -999,6 +1109,150 @@ func (s *server) handleExplorer(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
+func (s *server) handleTail(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, http.StatusInternalServerError, "streaming is not supported by this server")
+		return
+	}
+
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	severity := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("severity")))
+	stream := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("stream")))
+	selected := requestedContainers(r.URL.Query().Get("containers"))
+	since := parseTailSince(r.URL.Query().Get("since"))
+	listContext, listCancel := context.WithTimeout(r.Context(), 5*time.Second)
+	containers, err := s.docker.listRunning(listContext)
+	listCancel()
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, dockerUnavailableMessage(err))
+		return
+	}
+
+	selectedContainers := make([]dockerContainer, 0, len(containers))
+	for _, container := range containers {
+		if len(selected) == 0 || matchesContainerSelection(container, selected) {
+			selectedContainers = append(selectedContainers, container)
+		}
+	}
+	sort.Slice(selectedContainers, func(i, j int) bool {
+		return containerName(selectedContainers[i]) < containerName(selectedContainers[j])
+	})
+	streamedContainers := selectedContainers
+	if len(streamedContainers) > maxConcurrentTailStreams {
+		streamedContainers = streamedContainers[:maxConcurrentTailStreams]
+	}
+
+	tailContext, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+
+	var writeMu sync.Mutex
+	send := func(event string, value any) error {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		if err := writeSSE(w, event, value); err != nil {
+			cancel()
+			return err
+		}
+		flusher.Flush()
+		return nil
+	}
+
+	ready := map[string]any{
+		"since":              since,
+		"generatedAt":        time.Now().UTC(),
+		"selectedContainers": len(selectedContainers),
+		"streamedContainers": len(streamedContainers),
+	}
+	if err := send("ready", ready); err != nil {
+		return
+	}
+	if len(streamedContainers) < len(selectedContainers) {
+		if err := send("warning", map[string]any{
+			"message":   fmt.Sprintf("Live tail is limited to %d containers.", maxConcurrentTailStreams),
+			"streamed":  len(streamedContainers),
+			"requested": len(selectedContainers),
+		}); err != nil {
+			return
+		}
+	}
+	if len(streamedContainers) == 0 {
+		<-tailContext.Done()
+		return
+	}
+
+	var wait sync.WaitGroup
+	for _, container := range streamedContainers {
+		container := container
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			err := s.docker.followLogs(tailContext, container.ID, since, func(frame dockerFrame) error {
+				for _, line := range parseLogFrame(frame, container) {
+					if line.Timestamp.Before(since) {
+						continue
+					}
+					entry := toExplorerEntry(line, container)
+					if !matchesTailFilters(entry, query, severity, stream) {
+						continue
+					}
+					if err := send("log", entry); err != nil {
+						return err
+					}
+				}
+				return nil
+			})
+			if err != nil && tailContext.Err() == nil {
+				_ = send("error", map[string]string{
+					"container": containerName(container),
+					"message":   err.Error(),
+				})
+			}
+		}()
+	}
+
+	done := make(chan struct{})
+	go func() {
+		wait.Wait()
+		close(done)
+	}()
+	select {
+	case <-tailContext.Done():
+		return
+	case <-done:
+		_ = send("end", map[string]string{"reason": "all streams closed"})
+	}
+}
+
+func parseTailSince(value string) time.Time {
+	if parsed, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(value)); err == nil {
+		return parsed.UTC()
+	}
+	return time.Now().UTC()
+}
+
+func matchesTailFilters(entry explorerEntry, query, severity, stream string) bool {
+	return (severity == "" || severity == "ALL" || strings.EqualFold(entry.Severity, severity)) &&
+		(stream == "" || entry.Stream == stream) &&
+		matchesExplorerQuery(entry, query)
+}
+
+func writeSSE(w io.Writer, event string, value any) error {
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, payload); err != nil {
+		return err
+	}
+	return nil
+}
+
 func requestedContainers(value string) map[string]bool {
 	result := make(map[string]bool)
 	for _, item := range strings.Split(value, ",") {
@@ -1091,6 +1345,7 @@ func main() {
 	mux.HandleFunc("/api/health", app.handleHealth)
 	mux.HandleFunc("/api/status", app.handleStatus)
 	mux.HandleFunc("/api/explorer", app.handleExplorer)
+	mux.HandleFunc("/api/tail", app.handleTail)
 	static := http.FileServer(http.Dir("static"))
 	mux.Handle("/", static)
 
@@ -1102,9 +1357,11 @@ func main() {
 		Handler:           loggingMiddleware(mux),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      requestTimeout + 10*time.Second,
-		IdleTimeout:       60 * time.Second,
-		MaxHeaderBytes:    1 << 20,
+		// /api/tail is a long-lived SSE response. API handlers enforce their own
+		// context deadlines, while the stream ends when the client disconnects.
+		WriteTimeout:   0,
+		IdleTimeout:    60 * time.Second,
+		MaxHeaderBytes: 1 << 20,
 	}
 	if err := srv.ListenAndServe(); err != nil {
 		log.Fatal(err)
@@ -1136,6 +1393,15 @@ func (w *statusResponseWriter) Write(body []byte) (int, error) {
 		w.WriteHeader(http.StatusOK)
 	}
 	return w.ResponseWriter.Write(body)
+}
+
+func (w *statusResponseWriter) Flush() {
+	if w.statusCode == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
 }
 
 func (w *statusResponseWriter) status() int {
