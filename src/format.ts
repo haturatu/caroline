@@ -36,6 +36,29 @@ export function formatTimelineTick(value: string): string {
 			}).format(date);
 }
 
+export function formatTimelineAxisTick(
+	value: string,
+	from: string,
+	to: string,
+): string {
+	const date = new Date(value);
+	const start = Date.parse(from);
+	const end = Date.parse(to);
+	if (Number.isNaN(date.getTime()) || !Number.isFinite(start) || !Number.isFinite(end))
+		return "—";
+
+	const duration = Math.max(0, end - start);
+	const showDate = duration >= 12 * 60 * 60 * 1000;
+	const showWeekday = duration >= 3 * 24 * 60 * 60 * 1000;
+	return new Intl.DateTimeFormat(undefined, {
+		...(showDate ? { month: "2-digit", day: "2-digit" } : {}),
+		...(showWeekday ? { weekday: "short" } : {}),
+		hour: !showWeekday ? "2-digit" : undefined,
+		minute: !showWeekday ? "2-digit" : undefined,
+		hour12: false,
+	}).format(date);
+}
+
 export function severityClass(value: string): string {
 	return value.toLowerCase() === "warning"
 		? "warning"

@@ -12,8 +12,9 @@ FROM golang:1.26-alpine AS build
 
 WORKDIR /src
 COPY go.mod ./
-COPY main.go ./
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /caroline .
+COPY cmd ./cmd
+COPY internal ./internal
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /caroline ./cmd/caroline
 
 FROM alpine:3.22
 

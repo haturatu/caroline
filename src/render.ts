@@ -3,6 +3,7 @@ import {
 	formatNumber,
 	formatClockTime,
 	formatTime,
+	formatTimelineAxisTick,
 	formatTimelineTick,
 	severityClass,
 } from "./format.js";
@@ -144,14 +145,20 @@ function timelineSegment(
 	return `<span class="timeline-segment ${className}" style="height:${Math.max(0, ((bucket.severities[name] || 0) / Math.max(1, bucket.total)) * 100)}%"></span>`;
 }
 
-function timelineBucketLabel(bucket: TimelineBucket): string {
+function timelineBucketLabel(
+	bucket: TimelineBucket,
+	range?: { from: string; to: string },
+): string {
 	const start = Date.parse(bucket.start);
 	const end = Date.parse(bucket.end);
 	const midpoint =
 		Number.isNaN(start) || Number.isNaN(end)
 			? bucket.start
 			: new Date((start + end) / 2).toISOString();
-	return `${formatTimelineTick(midpoint)} · ${formatNumber(bucket.total)} entries`;
+	const tick = range
+		? formatTimelineAxisTick(midpoint, range.from, range.to)
+		: formatTimelineTick(midpoint);
+	return `${tick} · ${formatNumber(bucket.total)} entries`;
 }
 
 function timelineBucketAriaLabel(bucket: TimelineBucket): string {
@@ -169,6 +176,34 @@ function timelineBucketAriaLabel(bucket: TimelineBucket): string {
 		)
 		.join(", ");
 	return `${formatTime(bucket.start)} to ${formatTime(bucket.end)}. ${formatNumber(bucket.total)} entries${breakdown ? `: ${breakdown}` : ": no severity breakdown"}. Select this interval.`;
+}
+
+function timelineDayBoundaries(response: {
+	from: string;
+	to: string;
+}): string {
+	const start = Date.parse(response.from);
+	const end = Date.parse(response.to);
+	const duration = end - start;
+	if (!Number.isFinite(start) || !Number.isFinite(end) || duration < 3 * 24 * 60 * 60 * 1000)
+		return "";
+
+	const firstBoundary = new Date(start);
+	firstBoundary.setHours(0, 0, 0, 0);
+	firstBoundary.setDate(firstBoundary.getDate() + 1);
+	const boundaries: string[] = [];
+	for (
+		let boundary = firstBoundary.getTime();
+		boundary < end;
+		boundary = new Date(boundary).setDate(new Date(boundary).getDate() + 1)
+	) {
+		const position = ((boundary - start) / duration) * 100;
+		if (position > 0 && position < 100)
+			boundaries.push(
+				`<span class="timeline-day-boundary" style="left:${position}%"></span>`,
+			);
+	}
+	return boundaries.join("");
 }
 
 function renderTimelineLegend(): void {
@@ -240,8 +275,9 @@ function updateTimelineDrag(chart: HTMLElement, currentX: number): void {
 	if (label && bounds.width > 0) {
 		const from = timelineTimeAtX(chart, left);
 		const to = timelineTimeAtX(chart, right);
-		if (from !== null && to !== null) {
-			label.textContent = `${formatTimelineTick(new Date(from).toISOString())} – ${formatTimelineTick(new Date(to).toISOString())}`;
+		const response = state.response;
+		if (from !== null && to !== null && response) {
+			label.textContent = `${formatTimelineAxisTick(new Date(from).toISOString(), response.from, response.to)} – ${formatTimelineAxisTick(new Date(to).toISOString(), response.from, response.to)}`;
 			label.style.left = `${((left + right) / 2 / bounds.width) * 100}%`;
 		}
 	}
@@ -304,8 +340,13 @@ export function renderTimeline(): void {
 	const initialBucket =
 		response.timeline[Math.floor(response.timeline.length / 2)] ||
 		response.timeline[0];
-	chart.innerHTML = `<div class="timeline-grid" aria-hidden="true"><span></span><span></span><span></span><span></span></div><div class="timeline-selection" style="left:${selection.left}%;right:${selection.right}%" aria-hidden="true"></div><div class="timeline-drag-selection" aria-hidden="true"></div><span class="timeline-drag-label" aria-hidden="true"></span><div class="timeline-bars">${bars}</div><div class="timeline-baseline" aria-hidden="true"></div><div class="timeline-cursor" style="left:50%" aria-hidden="true"><span class="timeline-cursor-badge" title="${escapeHTML(timelineBucketLabel(initialBucket))}">${escapeHTML(timelineBucketLabel(initialBucket))}</span></div>`;
-	const tickCount = 7;
+	const range = { from: response.from, to: response.to };
+	const isLongRange =
+		Date.parse(response.to) - Date.parse(response.from) >=
+		12 * 60 * 60 * 1000;
+	const dayBoundaries = timelineDayBoundaries(range);
+	chart.innerHTML = `<div class="timeline-grid" aria-hidden="true"><span></span><span></span><span></span><span></span></div><div class="timeline-day-boundaries" aria-hidden="true">${dayBoundaries}</div><div class="timeline-selection" style="left:${selection.left}%;right:${selection.right}%" aria-hidden="true"></div><div class="timeline-drag-selection" aria-hidden="true"></div><span class="timeline-drag-label" aria-hidden="true"></span><div class="timeline-bars">${bars}</div><div class="timeline-baseline" aria-hidden="true"></div><div class="timeline-cursor" style="left:50%" aria-hidden="true"><span class="timeline-cursor-badge" title="${escapeHTML(timelineBucketLabel(initialBucket, range))}">${escapeHTML(timelineBucketLabel(initialBucket, range))}</span></div>`;
+	const tickCount = isLongRange ? 5 : 7;
 	axis.innerHTML = Array.from({ length: tickCount }, (_, index) => {
 		const bucketIndex = Math.min(
 			response.timeline.length - 1,
@@ -317,7 +358,7 @@ export function renderTimeline(): void {
 				: index === tickCount - 1
 					? response.to
 					: response.timeline[bucketIndex].start;
-		return `<span>${formatTimelineTick(value)}</span>`;
+		return `<span title="${escapeHTML(formatTime(value))}">${formatTimelineAxisTick(value, response.from, response.to)}</span>`;
 	}).join("");
 	if (!chart.dataset.cursorBound) {
 		chart.addEventListener("mousemove", (event: MouseEvent) => {
@@ -337,7 +378,10 @@ export function renderTimeline(): void {
 							Math.floor(position * timeline.length),
 						)
 					];
-				const label = timelineBucketLabel(bucket);
+				const label = timelineBucketLabel(bucket, {
+					from: state.response?.from || "",
+					to: state.response?.to || "",
+				});
 				const badge = chart.querySelector<HTMLElement>(
 					".timeline-cursor-badge",
 				);
@@ -359,6 +403,10 @@ export function renderTimeline(): void {
 				if (badge) {
 					const label = timelineBucketLabel(
 						timeline[Math.floor(timeline.length / 2)],
+						{
+							from: state.response?.from || "",
+							to: state.response?.to || "",
+						},
 					);
 					badge.textContent = label;
 					badge.title = label;
@@ -438,8 +486,12 @@ export function renderTimeline(): void {
 		if (cursor)
 			cursor.style.left = `${((index + 0.5) / timeline.length) * 100}%`;
 		if (badge) {
-			badge.textContent = timelineBucketLabel(bucket);
-			badge.title = timelineBucketLabel(bucket);
+			const label = timelineBucketLabel(bucket, {
+				from: state.response?.from || "",
+				to: state.response?.to || "",
+			});
+			badge.textContent = label;
+			badge.title = label;
 		}
 	};
 	$$<HTMLButtonElement>(".timeline-bar").forEach((bar) => {
