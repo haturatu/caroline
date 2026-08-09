@@ -23,6 +23,7 @@ let searchTimer: number | null = null;
 let reloadRequested = false;
 let detailReturnFocusId: string | null = null;
 let navReturnFocus: HTMLElement | null = null;
+let fieldsReturnFocus: HTMLElement | null = null;
 let errorContextFocused = false;
 let initialLoadingTimer: number | null = null;
 let initialLoadingVisibleAt = 0;
@@ -137,24 +138,50 @@ function focusGlobalSearch(): void {
 		input.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
+function isMobileViewport(): boolean {
+	return window.matchMedia("(max-width: 800px)").matches;
+}
+
+function syncMobileFieldsOverlay(): void {
+	const fieldsOpen = isMobileViewport() && !state.fieldsHidden;
+	document.body.classList.toggle("fields-open", fieldsOpen);
+	if (isMobileViewport())
+		setActiveNavigation(fieldsOpen ? "fieldsNavButton" : "logsNavButton");
+	if (fieldsOpen) {
+		if (!fieldsReturnFocus)
+			fieldsReturnFocus = $("#consoleMenuButton") as HTMLElement;
+		$("#mobileNavBackdrop").removeAttribute("hidden");
+	} else if (!state.navExpanded) {
+		$("#mobileNavBackdrop").setAttribute("hidden", "");
+		fieldsReturnFocus = null;
+	}
+}
+
 function closeMobileOverlay(): void {
 	const fieldsWereOpen = document.body.classList.contains("fields-open");
+	const returnFocus = fieldsWereOpen
+		? fieldsReturnFocus || ($("#consoleMenuButton") as HTMLElement)
+		: navReturnFocus;
 	state.navExpanded = false;
 	document.body.classList.remove("nav-expanded", "fields-open");
 	$("#consoleMenuButton").setAttribute("aria-expanded", "false");
 	$("#mobileNavBackdrop").setAttribute("hidden", "");
-	if (navReturnFocus) {
-		navReturnFocus.focus({ preventScroll: true });
-		navReturnFocus = null;
-	}
 	if (fieldsWereOpen) {
 		state.fieldsHidden = true;
 		syncURL();
 		renderAll();
+		setActiveNavigation("logsNavButton");
 	}
+	navReturnFocus = null;
+	fieldsReturnFocus = null;
+	if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
 }
 
 function toggleMobileNav(): void {
+	if (document.body.classList.contains("fields-open")) {
+		closeMobileOverlay();
+		return;
+	}
 	if (state.navExpanded) {
 		closeMobileOverlay();
 		return;
@@ -181,8 +208,10 @@ function setActiveNavigation(id: string): void {
 }
 
 function focusSection(section: "main-content" | "timeline" | "fields"): void {
+	const mobile = isMobileViewport();
 	if (section === "fields") {
 		state.fieldsHidden = false;
+		if (mobile) fieldsReturnFocus = $("#consoleMenuButton") as HTMLElement;
 		renderAll();
 	}
 	if (section === "timeline") {
@@ -190,7 +219,7 @@ function focusSection(section: "main-content" | "timeline" | "fields"): void {
 		renderAll();
 	}
 	syncURL();
-	if (window.matchMedia("(max-width: 800px)").matches) {
+	if (mobile) {
 		closeMobileOverlay();
 		if (section === "fields") {
 			document.body.classList.add("fields-open");
@@ -501,7 +530,10 @@ function setupRenderActions(): void {
 	setRenderActions({
 		onToast: toast,
 		onFieldFilter: (field, value) => {
-			state.query = `${state.query}${state.query ? "\n" : ""}${field} = "${value.replace(/"/g, '\\"')}"`;
+			const clause = `${field} = "${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+			state.query = state.query.trim()
+				? `${state.query.trim()} AND ${clause}`
+				: clause;
 			state.draftQuery = state.query;
 			state.showQuery = true;
 			state.pageToken = "";
@@ -688,16 +720,15 @@ function setupEvents(): void {
 	});
 	$("#fieldsToggle").addEventListener("click", () => {
 		state.fieldsHidden = !state.fieldsHidden;
+		if (isMobileViewport() && state.fieldsHidden) {
+			closeMobileOverlay();
+			return;
+		}
+		if (isMobileViewport() && !state.fieldsHidden) {
+			fieldsReturnFocus = $("#consoleMenuButton") as HTMLElement;
+			syncMobileFieldsOverlay();
+		}
 		syncURL();
-		const mobile = window.matchMedia("(max-width: 800px)").matches;
-		document.body.classList.toggle(
-			"fields-open",
-			!state.fieldsHidden && mobile,
-		);
-		if (!state.fieldsHidden && mobile)
-			$("#mobileNavBackdrop").removeAttribute("hidden");
-		else if (state.fieldsHidden)
-			$("#mobileNavBackdrop").setAttribute("hidden", "");
 		renderAll();
 	});
 	$("#timelineToggle").addEventListener("click", () => {
@@ -709,6 +740,7 @@ function setupEvents(): void {
 	$("#timelineZoomIn").addEventListener("click", () => shiftTimelineRange(-1));
 	window.addEventListener("popstate", () => {
 		hydrateURL();
+		syncMobileFieldsOverlay();
 		void loadExplorer();
 		setLive(state.live);
 	});
@@ -798,7 +830,7 @@ function setupEvents(): void {
 	});
 }
 
-hydrateURL();
+	hydrateURL();
 if (
 	!new URL(window.location.href).searchParams.has("fields") &&
 	window.innerWidth > 1440
@@ -808,6 +840,7 @@ syncURL();
 setupRenderActions();
 setupEvents();
 applyTheme(loadSavedTheme());
+syncMobileFieldsOverlay();
 setLive(state.live);
 void loadStatus();
 void loadExplorer();

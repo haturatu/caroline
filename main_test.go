@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -79,6 +80,8 @@ func TestMatchesExplorerQuery(t *testing.T) {
 	}{
 		{`severity >= ERROR`, true},
 		{`resource.labels.container_name = "api" AND stream = "stderr"`, true},
+		{`severity >= ERROR
+severity = "ERROR"`, true},
 		{`jsonPayload.status = "500"`, true},
 		{`SEARCH("failed")`, true},
 		{`severity = INFO`, false},
@@ -213,5 +216,33 @@ func TestHandleExplorerLimitsDockerConcurrency(t *testing.T) {
 	}
 	if maximum > maxConcurrentDockerRequests {
 		t.Fatalf("maximum concurrent Docker requests = %d, want <= %d", maximum, maxConcurrentDockerRequests)
+	}
+}
+
+func TestLoggingMiddlewareSkipsSuccessfulResponses(t *testing.T) {
+	originalWriter := log.Writer()
+	defer log.SetOutput(originalWriter)
+
+	var output bytes.Buffer
+	log.SetOutput(&output)
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/error" {
+			http.Error(w, "failed", http.StatusBadGateway)
+			return
+		}
+		_, _ = w.Write([]byte("ok"))
+	})
+	handler := loggingMiddleware(next)
+
+	successRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(successRecorder, httptest.NewRequest(http.MethodGet, "/api/health", nil))
+	if output.Len() != 0 {
+		t.Fatalf("successful request was logged: %q", output.String())
+	}
+
+	errorRecorder := httptest.NewRecorder()
+	handler.ServeHTTP(errorRecorder, httptest.NewRequest(http.MethodGet, "/api/error", nil))
+	if !strings.Contains(output.String(), "502") {
+		t.Fatalf("failed request did not include its status: %q", output.String())
 	}
 }

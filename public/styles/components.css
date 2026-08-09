@@ -909,6 +909,9 @@ body.drawer-open {
 }
 
 .error-banner {
+	position: sticky;
+	top: 60px;
+	z-index: 15;
 	display: flex;
 	align-items: center;
 	gap: 9px;

@@ -376,6 +376,8 @@ export function renderResultsMeta(): void {
 		: "Run a Query to see matching log entries.";
 	$("#refreshStatus").textContent = state.loading
 		? "Refreshing…"
+		: state.errors.explorer
+			? "Refresh failed · Showing previous results"
 		: state.lastUpdated
 			? `Updated ${formatClockTime(state.lastUpdated)}`
 			: "";

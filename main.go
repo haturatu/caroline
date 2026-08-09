@@ -633,8 +633,33 @@ func matchesExplorerClause(entry explorerEntry, clause string) bool {
 	return false
 }
 
+func normalizeExplorerQuery(query string) string {
+	var normalized strings.Builder
+	normalized.Grow(len(query) + 8)
+	inDoubleQuote := false
+	inBacktick := false
+	for index := 0; index < len(query); index++ {
+		character := query[index]
+		if character == '"' && !inBacktick && (index == 0 || query[index-1] != '\\') {
+			inDoubleQuote = !inDoubleQuote
+		}
+		if character == '`' && !inDoubleQuote {
+			inBacktick = !inBacktick
+		}
+		if !inDoubleQuote && !inBacktick && (character == '\n' || character == '\r') {
+			normalized.WriteString(" AND ")
+			if character == '\r' && index+1 < len(query) && query[index+1] == '\n' {
+				index++
+			}
+			continue
+		}
+		normalized.WriteByte(character)
+	}
+	return strings.TrimSpace(normalized.String())
+}
+
 func matchesExplorerQuery(entry explorerEntry, query string) bool {
-	query = strings.TrimSpace(strings.ReplaceAll(query, "\n", " "))
+	query = normalizeExplorerQuery(query)
 	if query == "" {
 		return true
 	}
@@ -1093,12 +1118,40 @@ func dockerHostDescription() string {
 	return "unix:///var/run/docker.sock"
 }
 
+type statusResponseWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (w *statusResponseWriter) WriteHeader(statusCode int) {
+	if w.statusCode != 0 {
+		return
+	}
+	w.statusCode = statusCode
+	w.ResponseWriter.WriteHeader(statusCode)
+}
+
+func (w *statusResponseWriter) Write(body []byte) (int, error) {
+	if w.statusCode == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(body)
+}
+
+func (w *statusResponseWriter) status() int {
+	if w.statusCode == 0 {
+		return http.StatusOK
+	}
+	return w.statusCode
+}
+
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
-		next.ServeHTTP(w, r)
-		if strings.HasPrefix(r.URL.Path, "/api/") {
-			log.Printf("%s %s %s", r.Method, r.URL.RequestURI(), time.Since(started).Round(time.Millisecond))
+		response := &statusResponseWriter{ResponseWriter: w}
+		next.ServeHTTP(response, r)
+		if strings.HasPrefix(r.URL.Path, "/api/") && response.status() >= http.StatusMultipleChoices {
+			log.Printf("%s %s %d %s", r.Method, r.URL.RequestURI(), response.status(), time.Since(started).Round(time.Millisecond))
 		}
 	})
 }

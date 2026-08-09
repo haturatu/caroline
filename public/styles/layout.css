@@ -233,6 +233,19 @@
 	inline-size: 100%;
 	padding-block: 8px;
 	padding-inline: 12px;
+	gap: 8px;
+}
+
+.nav-expanded .side-nav-footer > span:nth-child(2) {
+	display: flex;
+	min-inline-size: 0;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.nav-expanded .side-nav-footer strong,
+.nav-expanded .side-nav-footer small {
+	display: block;
 }
 
 .main-content {
