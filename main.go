@@ -269,7 +269,7 @@ func (d *dockerClient) followLogs(ctx context.Context, containerID string, since
 	params.Set("follow", "1")
 	params.Set("tail", "0")
 	if !since.IsZero() {
-		params.Set("since", since.UTC().Format(time.RFC3339Nano))
+		params.Set("since", strconv.FormatInt(since.Unix(), 10))
 	}
 
 	endpoint := "/containers/" + url.PathEscape(containerID) + "/logs?" + params.Encode()
@@ -1110,6 +1110,13 @@ func (s *server) handleExplorer(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleTail(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodHead {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		w.Header().Set("X-Accel-Buffering", "no")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, "streaming is not supported by this server")
@@ -1145,9 +1152,8 @@ func (s *server) handleTail(w http.ResponseWriter, r *http.Request) {
 
 	tailContext, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
-	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
 
@@ -1181,11 +1187,6 @@ func (s *server) handleTail(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if len(streamedContainers) == 0 {
-		<-tailContext.Done()
-		return
-	}
-
 	var wait sync.WaitGroup
 	for _, container := range streamedContainers {
 		container := container
@@ -1217,15 +1218,28 @@ func (s *server) handleTail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	done := make(chan struct{})
-	go func() {
-		wait.Wait()
-		close(done)
-	}()
-	select {
-	case <-tailContext.Done():
-		return
-	case <-done:
-		_ = send("end", map[string]string{"reason": "all streams closed"})
+	if len(streamedContainers) > 0 {
+		go func() {
+			wait.Wait()
+			close(done)
+		}()
+	}
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+	for {
+		select {
+		case <-tailContext.Done():
+			return
+		case <-done:
+			if len(streamedContainers) > 0 {
+				_ = send("end", map[string]string{"reason": "all streams closed"})
+			}
+			return
+		case <-heartbeat.C:
+			if err := sendSSEComment(w, &writeMu, flusher, "keep-alive"); err != nil {
+				return
+			}
+		}
 	}
 }
 
@@ -1250,6 +1264,16 @@ func writeSSE(w io.Writer, event string, value any) error {
 	if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, payload); err != nil {
 		return err
 	}
+	return nil
+}
+
+func sendSSEComment(w io.Writer, writeMu *sync.Mutex, flusher http.Flusher, comment string) error {
+	writeMu.Lock()
+	defer writeMu.Unlock()
+	if _, err := fmt.Fprintf(w, ": %s\n\n", comment); err != nil {
+		return err
+	}
+	flusher.Flush()
 	return nil
 }
 
@@ -1317,7 +1341,7 @@ func dockerUnavailableMessage(err error) string {
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
@@ -1334,6 +1358,39 @@ func min(a, b int) int {
 	return b
 }
 
+func getOnly(handler http.HandlerFunc) http.HandlerFunc {
+	return allowMethods(handler, http.MethodGet, http.MethodHead)
+}
+
+func allowMethods(handler http.HandlerFunc, allowed ...string) http.HandlerFunc {
+	allowedSet := make(map[string]struct{}, len(allowed))
+	for _, method := range allowed {
+		allowedSet[method] = struct{}{}
+	}
+	allow := strings.Join(allowed, ", ")
+	return func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := allowedSet[r.Method]; ok {
+			handler(w, r)
+			return
+		}
+		if isKnownHTTPMethod(r.Method) {
+			w.Header().Set("Allow", allow)
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		writeError(w, http.StatusNotImplemented, "method not implemented")
+	}
+}
+
+func isKnownHTTPMethod(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodConnect, http.MethodOptions, http.MethodTrace:
+		return true
+	default:
+		return false
+	}
+}
+
 func main() {
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -1342,10 +1399,10 @@ func main() {
 
 	app := &server{docker: newDockerClient()}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/health", app.handleHealth)
-	mux.HandleFunc("/api/status", app.handleStatus)
-	mux.HandleFunc("/api/explorer", app.handleExplorer)
-	mux.HandleFunc("/api/tail", app.handleTail)
+	mux.HandleFunc("/api/health", getOnly(app.handleHealth))
+	mux.HandleFunc("/api/status", getOnly(app.handleStatus))
+	mux.HandleFunc("/api/explorer", getOnly(app.handleExplorer))
+	mux.HandleFunc("/api/tail", getOnly(app.handleTail))
 	static := http.FileServer(http.Dir("static"))
 	mux.Handle("/", static)
 
@@ -1378,6 +1435,10 @@ func dockerHostDescription() string {
 type statusResponseWriter struct {
 	http.ResponseWriter
 	statusCode int
+}
+
+func (w *statusResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
 }
 
 func (w *statusResponseWriter) WriteHeader(statusCode int) {
