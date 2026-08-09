@@ -275,10 +275,6 @@ async function settleInitialLoading(): Promise<void> {
 async function loadStatus(): Promise<void> {
 	try {
 		const status = await fetchStatus();
-		$("#connectionDot").className = status.connected ? "connected" : "offline";
-		$("#connectionText").textContent = status.connected
-			? "Connected"
-			: "Unavailable";
 		$("#sideEngineStatus").textContent = status.connected
 			? "Docker Connected"
 			: "Docker Unavailable";
@@ -294,8 +290,6 @@ async function loadStatus(): Promise<void> {
 			);
 		}
 	} catch (error) {
-		$("#connectionDot").className = "offline";
-		$("#connectionText").textContent = "Server Error";
 		showError(errorText(error), "status");
 	}
 }

@@ -57,6 +57,21 @@
 	border-right: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
 }
 
+.timeline-day-boundaries {
+	position: absolute;
+	z-index: 1;
+	inset: 9px 0 21px;
+	pointer-events: none;
+}
+
+.timeline-day-boundary {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	width: 1px;
+	background: color-mix(in srgb, var(--border-strong) 85%, transparent);
+}
+
 .timeline-selection {
 	position: absolute;
 	right: 0;
@@ -234,16 +249,27 @@
 
 .timeline-axis {
 	display: flex;
-	justify-content: space-between;
 	margin: 0 14px;
 	padding: 4px 0 8px;
 	color: var(--faint);
 	background: var(--surface);
 	font: 9px var(--mono);
+	overflow: hidden;
 }
 
 .timeline-axis span {
+	min-width: 0;
+	flex: 1;
+	text-align: center;
 	white-space: nowrap;
+}
+
+.timeline-axis span:first-child {
+	text-align: left;
+}
+
+.timeline-axis span:last-child {
+	text-align: right;
 }
 
 .timeline-legend {
