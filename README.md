@@ -1,4 +1,5 @@
 # Caroline
+<img width="1341" height="629" alt="top" src="https://github.com/user-attachments/assets/d89ad9db-64fa-45c4-93af-3e7329bdca6e" />
 
 Caroline is a lightweight web app for searching and inspecting stdout/stderr from currently running Docker containers. It is inspired by the information architecture of Google Cloud Logs Explorer, but its query syntax and data model are intentionally a small subset designed for Docker logs.
 
