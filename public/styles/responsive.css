@@ -396,3 +396,26 @@
 		white-space: nowrap;
 	}
 }
+
+@media (max-width: 360px) {
+	.query-panel-header {
+		align-items: stretch;
+		flex-direction: column;
+		gap: 8px;
+	}
+
+	.query-panel-actions {
+		inline-size: 100%;
+		justify-content: flex-end;
+	}
+
+	.query-panel-actions .text-button,
+	.query-panel-actions .run-button {
+		white-space: nowrap;
+	}
+
+	.error-banner {
+		top: 64px;
+		align-items: flex-start;
+	}
+}

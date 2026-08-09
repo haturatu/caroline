@@ -46,6 +46,8 @@
             <div class="query-help"><span class="info-icon" aria-hidden="true">i</span><span>Basic filters update immediately. Advanced query runs with <kbd>Ctrl</kbd> + <kbd>Enter</kbd>.</span><button class="text-button" id="queryHelpButton" type="button" aria-expanded="false" aria-controls="queryHelpPopover">Query Syntax</button><div class="query-help-popover" id="queryHelpPopover" role="dialog" aria-labelledby="queryHelpTitle" hidden><strong id="queryHelpTitle">Caroline Query Syntax</strong><p>Inspired by Google Cloud Logging syntax. Not fully compatible.</p><pre>severity &gt;= ERROR<br>container = &quot;nginx&quot;<br>stream = &quot;stderr&quot;<br>SEARCH(&quot;timeout&quot;)</pre><p>Combine clauses with <code>AND</code> or <code>OR</code>.</p></div></div>
           </section>
 
+          <div class="error-banner" id="errorBanner" role="alert" aria-live="polite" tabindex="-1" hidden><span class="error-icon" aria-hidden="true">!</span><span class="error-content"><span id="errorMessage"></span><button class="text-button error-details-toggle" id="errorDetailsToggle" type="button" aria-expanded="false" hidden>View Details</button><span class="error-details" id="errorDetails" hidden></span></span><button class="text-button" id="errorDismiss" type="button">Dismiss</button></div>
+
           <div class="explorer-grid">
             <aside class="fields-panel" id="fields" tabindex="-1" aria-labelledby="fields-title"><div class="panel-heading"><h2 id="fields-title">Fields</h2><button class="icon-button compact" id="fieldsToggle" type="button" aria-label="Hide Fields" title="Hide Fields">‹</button></div><div id="fieldGroups"><div class="panel-loading">Fields appear after you run a query.</div></div></aside>
             <div class="results-column">
@@ -54,7 +56,6 @@
             </div>
           </div>
 
-          <div class="error-banner" id="errorBanner" role="alert" aria-live="polite" tabindex="-1" hidden><span class="error-icon" aria-hidden="true">!</span><span class="error-content"><span id="errorMessage"></span><button class="text-button error-details-toggle" id="errorDetailsToggle" type="button" aria-expanded="false" hidden>View Details</button><span class="error-details" id="errorDetails" hidden></span></span><button class="text-button" id="errorDismiss" type="button">Dismiss</button></div>
           <footer class="page-footer"><span>Caroline for Docker Engine</span><span><span class="footer-dot"></span>Data stays on this host</span></footer>
         </main>
       </div>
