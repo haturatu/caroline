@@ -6,6 +6,10 @@ export type { AlertRule };
 export type AlertRuleInput = {
 	name: string;
 	query: string;
+	severity: string;
+	labels: Record<string, string>;
+	runbookUrl: string;
+	sampleMode: "off" | "summary" | "full";
 	threshold: number;
 	windowSeconds: number;
 	cooldownSeconds: number;

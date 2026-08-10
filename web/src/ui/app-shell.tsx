@@ -256,6 +256,34 @@ export function AppShell(): Node {
 					</div>
 					<div className="alert-number-grid">
 						<label className="alert-field">
+							<span data-i18n="alerts.severity">Severity</span>
+							<select id="alertSeverityInput" name="severity" defaultValue="warning">
+								<option value="" data-i18n="alerts.severityNone">Not set</option>
+								<option value="info">info</option>
+								<option value="warning">warning</option>
+								<option value="critical">critical</option>
+							</select>
+						</label>
+						<label className="alert-field">
+							<span data-i18n="alerts.sample">Sample</span>
+							<select id="alertSampleModeInput" name="sampleMode" defaultValue="summary">
+								<option value="off" data-i18n="alerts.sampleOff">Off</option>
+								<option value="summary" data-i18n="alerts.sampleSummary">Summary</option>
+								<option value="full" data-i18n="alerts.sampleFull">Full (redacted)</option>
+							</select>
+						</label>
+					</div>
+					<label className="alert-field">
+						<span data-i18n="alerts.labels">Labels</span>
+						<input
+							id="alertLabelsInput"
+							name="labels"
+							data-i18n-placeholder="alerts.labelsOptional"
+							placeholder="service=api, environment=production"
+						/>
+					</label>
+					<div className="alert-number-grid">
+						<label className="alert-field">
 							<span data-i18n="alerts.thresholdLabel">
 								Matches before firing
 							</span>
@@ -294,6 +322,16 @@ export function AppShell(): Node {
 							/>
 						</label>
 					</div>
+					<label className="alert-field">
+						<span data-i18n="alerts.runbook">Runbook URL</span>
+						<input
+							id="alertRunbookInput"
+							name="runbookUrl"
+							type="url"
+							data-i18n-placeholder="alerts.runbookOptional"
+							placeholder="Optional runbook URL"
+						/>
+					</label>
 					<label className="alert-field">
 						<span data-i18n="alerts.webhook">Webhook URL</span>
 						<input

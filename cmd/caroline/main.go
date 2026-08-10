@@ -25,7 +25,9 @@ func main() {
 	if alertStore == "" {
 		alertStore = "alerts.json"
 	}
-	alertEngine, err := alert.NewEngineWithPersistence(streamManager, notifier.Webhook{}, alertStore)
+	alertEngine, err := alert.NewEngineWithPersistence(streamManager, notifier.Webhook{
+		ExplorerBaseURL: strings.TrimSpace(os.Getenv("CAROLINE_URL")),
+	}, alertStore)
 	if err != nil {
 		log.Fatalf("load alert store %q: %v", alertStore, err)
 	}

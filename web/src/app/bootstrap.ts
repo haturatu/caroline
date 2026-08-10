@@ -566,9 +566,20 @@ async function submitAlert(): Promise<void> {
 	const form = $("#alertForm") as HTMLFormElement;
 	if (!form.reportValidity()) return;
 	const input = (id: string) => $(id) as HTMLInputElement;
+	const labels = Object.fromEntries(
+		input("#alertLabelsInput").value
+			.split(",")
+			.map((part) => part.trim().split("="))
+			.filter(([key, value]) => key?.trim() && value?.trim())
+			.map(([key, value]) => [key.trim(), value.trim()]),
+	);
 	const rule: AlertRuleInput = {
 		name: input("#alertNameInput").value.trim(),
 		query: buildExplorerQuery(),
+		severity: input("#alertSeverityInput").value,
+		labels,
+		runbookUrl: input("#alertRunbookInput").value.trim(),
+		sampleMode: input("#alertSampleModeInput").value as AlertRuleInput["sampleMode"],
 		threshold: Number(input("#alertThresholdInput").value),
 		windowSeconds: Number(input("#alertWindowInput").value),
 		cooldownSeconds: Number(input("#alertCooldownInput").value),
