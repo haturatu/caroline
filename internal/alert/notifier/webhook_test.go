@@ -103,6 +103,24 @@ func TestIsDiscordWebhookURL(t *testing.T) {
 	}
 }
 
+func TestDetectWebhookProvider(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		url      string
+		provider webhookProvider
+	}{
+		{name: "discord", url: "https://discord.com/api/webhooks/123/token", provider: providerDiscord},
+		{name: "generic", url: "https://alerts.example.test/caroline", provider: providerGeneric},
+		{name: "insecure discord", url: "http://discord.com/api/webhooks/123/token", provider: providerGeneric},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := detectWebhookProvider(test.url); got != test.provider {
+				t.Fatalf("detectWebhookProvider(%q) = %q, want %q", test.url, got, test.provider)
+			}
+		})
+	}
+}
+
 func testNotification() alert.Notification {
 	return alert.Notification{
 		Event:           "alert.firing",

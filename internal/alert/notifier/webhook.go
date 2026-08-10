@@ -20,6 +20,13 @@ type Webhook struct {
 	ExplorerBaseURL string
 }
 
+type webhookProvider string
+
+const (
+	providerGeneric webhookProvider = "generic"
+	providerDiscord webhookProvider = "discord"
+)
+
 func (w Webhook) Notify(ctx context.Context, rule alert.Rule, notification alert.Notification) error {
 	if rule.WebhookURL == "" {
 		return nil
@@ -36,13 +43,14 @@ func (w Webhook) Notify(ctx context.Context, rule alert.Rule, notification alert
 	endpoint := rule.WebhookURL
 	var body []byte
 	var err error
-	if isDiscordWebhookURL(endpoint) {
+	switch detectWebhookProvider(endpoint) {
+	case providerDiscord:
 		endpoint, err = discordEndpoint(endpoint)
 		if err != nil {
 			return err
 		}
 		body, err = json.Marshal(discordPayload(notification))
-	} else {
+	case providerGeneric:
 		body, err = json.Marshal(notification)
 	}
 	if err != nil {
@@ -290,16 +298,22 @@ func truncateDiscordText(value string, limit int) string {
 }
 
 func isDiscordWebhookURL(raw string) bool {
+	return detectWebhookProvider(raw) == providerDiscord
+}
+
+func detectWebhookProvider(raw string) webhookProvider {
 	parsed, err := url.Parse(raw)
 	if err != nil || !strings.EqualFold(parsed.Scheme, "https") {
-		return false
+		return providerGeneric
 	}
 	switch strings.ToLower(parsed.Hostname()) {
 	case "discord.com", "discordapp.com", "canary.discord.com", "ptb.discord.com":
-		return strings.HasPrefix(parsed.Path, "/api/webhooks/")
+		if strings.HasPrefix(parsed.Path, "/api/webhooks/") {
+			return providerDiscord
+		}
 	default:
-		return false
 	}
+	return providerGeneric
 }
 
 func discordEndpoint(raw string) (string, error) {
