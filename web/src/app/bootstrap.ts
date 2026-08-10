@@ -410,10 +410,12 @@ async function loadExplorer(append = false): Promise<void> {
 		state.errorDetails = response.errors || [];
 		if (state.errorDetails.length)
 			showError(t("errors.someContainers"), "explorer");
-		if (!append)
+		if (!append && !reloadRequested) {
+			enableTimelineResolution();
 			startTail(response.generatedAt, (message) =>
 				showError(message, "explorer"),
 			);
+		}
 	} catch (error) {
 		await settleInitialLoading();
 		if (!append && !state.response) {
@@ -1014,7 +1016,7 @@ setupEvents();
 setLocale(getLocale());
 setupLocale();
 applyTheme(loadSavedTheme());
-setupTimelineResolution(() => {
+const enableTimelineResolution = setupTimelineResolution(() => {
 	if (!state.response) return;
 	state.pageToken = "";
 	syncURL();

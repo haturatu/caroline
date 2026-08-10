@@ -13,9 +13,11 @@ import (
 )
 
 type fakeSource struct {
-	container   docker.Container
-	containers  []docker.Container
-	followCalls atomic.Int32
+	container     docker.Container
+	containers    []docker.Container
+	followCalls   atomic.Int32
+	followStarted chan struct{}
+	followRelease chan struct{}
 }
 
 func (s *fakeSource) ListRunning(context.Context) ([]docker.Container, error) {
@@ -32,6 +34,14 @@ func (s *fakeSource) FollowLogs(
 	onFrame func(docker.Frame) error,
 ) error {
 	s.followCalls.Add(1)
+	if s.followStarted != nil {
+		close(s.followStarted)
+		select {
+		case <-s.followRelease:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 	if err := onFrame(docker.Frame{
 		Stream: "stdout",
 		Data:   []byte("2026-08-10T00:00:01Z ERROR shared stream\n"),
@@ -46,7 +56,7 @@ func TestManagerSharesContainerFollowStream(t *testing.T) {
 	source := &fakeSource{container: docker.Container{
 		ID:    "container-id",
 		Names: []string{"/api"},
-	}}
+	}, followStarted: make(chan struct{}), followRelease: make(chan struct{})}
 	manager := NewManager(source)
 	defer manager.Close()
 
@@ -54,10 +64,16 @@ func TestManagerSharesContainerFollowStream(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first subscription: %v", err)
 	}
+	select {
+	case <-source.followStarted:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for shared stream to start")
+	}
 	second, err := manager.Subscribe(context.Background(), nil, time.Time{}, 0)
 	if err != nil {
 		t.Fatalf("second subscription: %v", err)
 	}
+	close(source.followRelease)
 	defer first.Close()
 	defer second.Close()
 
