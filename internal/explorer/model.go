@@ -14,7 +14,10 @@ const (
 	MaxLogTail                  = 1000
 	MaxEntries                  = 50000
 	MaxConcurrentDockerRequests = 8
-	MaxTailStreams              = 8
+	// Live tail shares one Docker follow stream per container with the alert
+	// engine, so it does not impose a second container-count cap. A zero value
+	// means unlimited in logstream.Manager.Subscribe.
+	MaxTailStreams = 0
 )
 
 type ContainerInfo struct {

@@ -14,6 +14,8 @@ const (
 	defaultSubscriptionBuffer = 1024
 	maxSeenEntries            = 4096
 	streamRetryDelay          = time.Second
+	containerListAttempts     = 3
+	containerListRetryDelay   = 100 * time.Millisecond
 )
 
 type Source interface {
@@ -122,9 +124,7 @@ func (m *Manager) Subscribe(
 	since time.Time,
 	maxContainers int,
 ) (*Subscription, error) {
-	listContext, cancel := context.WithTimeout(ctx, 5*time.Second)
-	containers, err := m.source.ListRunning(listContext)
-	cancel()
+	containers, err := m.listRunning(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -191,9 +191,7 @@ func (m *Manager) Subscribe(
 }
 
 func (m *Manager) Refresh(ctx context.Context) error {
-	listContext, cancel := context.WithTimeout(ctx, 5*time.Second)
-	containers, err := m.source.ListRunning(listContext)
-	cancel()
+	containers, err := m.listRunning(ctx)
 	if err != nil {
 		return err
 	}
@@ -220,6 +218,30 @@ func (m *Manager) Refresh(ctx context.Context) error {
 		m.startStream(current)
 	}
 	return nil
+}
+
+func (m *Manager) listRunning(ctx context.Context) ([]docker.Container, error) {
+	var lastErr error
+	for attempt := 0; attempt < containerListAttempts; attempt++ {
+		listContext, cancel := context.WithTimeout(ctx, 5*time.Second)
+		containers, err := m.source.ListRunning(listContext)
+		cancel()
+		if err == nil {
+			return containers, nil
+		}
+		lastErr = err
+		if attempt+1 == containerListAttempts {
+			break
+		}
+		timer := time.NewTimer(containerListRetryDelay)
+		select {
+		case <-timer.C:
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		}
+	}
+	return nil, lastErr
 }
 
 func (m *Manager) getOrCreateStreamLocked(container docker.Container, since time.Time) (*stream, bool) {

@@ -2,19 +2,26 @@ package logstream
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"caroline/internal/docker"
+	"caroline/internal/explorer"
 )
 
 type fakeSource struct {
 	container   docker.Container
+	containers  []docker.Container
 	followCalls atomic.Int32
 }
 
 func (s *fakeSource) ListRunning(context.Context) ([]docker.Container, error) {
+	if len(s.containers) > 0 {
+		return s.containers, nil
+	}
 	return []docker.Container{s.container}, nil
 }
 
@@ -73,4 +80,64 @@ func TestManagerSharesContainerFollowStream(t *testing.T) {
 	if calls := source.followCalls.Load(); calls != 1 {
 		t.Fatalf("FollowLogs called %d times, want 1", calls)
 	}
+}
+
+func TestManagerDoesNotCapLiveTailWhenLimitIsDisabled(t *testing.T) {
+	containers := make([]docker.Container, 9)
+	for index := range containers {
+		containers[index] = docker.Container{
+			ID:    fmt.Sprintf("container-%d", index),
+			Names: []string{fmt.Sprintf("/worker-%d", index)},
+		}
+	}
+	source := &fakeSource{containers: containers}
+	manager := NewManager(source)
+	defer manager.Close()
+
+	subscription, err := manager.Subscribe(context.Background(), nil, time.Time{}, explorer.MaxTailStreams)
+	if err != nil {
+		t.Fatalf("Subscribe returned error: %v", err)
+	}
+	defer subscription.Close()
+	if subscription.SelectedContainers != len(containers) || subscription.StreamedContainers != len(containers) {
+		t.Fatalf("tail selected=%d streamed=%d, want %d", subscription.SelectedContainers, subscription.StreamedContainers, len(containers))
+	}
+}
+
+type retrySource struct {
+	base     *fakeSource
+	failures atomic.Int32
+}
+
+func (s *retrySource) ListRunning(ctx context.Context) ([]docker.Container, error) {
+	if s.failures.Load() > 0 && s.failures.Add(-1) >= 0 {
+		return nil, errors.New("temporary Docker API failure")
+	}
+	return s.base.ListRunning(ctx)
+}
+
+func (s *retrySource) FollowLogs(
+	ctx context.Context,
+	containerID string,
+	since time.Time,
+	onFrame func(docker.Frame) error,
+) error {
+	return s.base.FollowLogs(ctx, containerID, since, onFrame)
+}
+
+func TestManagerRetriesContainerDiscovery(t *testing.T) {
+	base := &fakeSource{container: docker.Container{
+		ID:    "container-id",
+		Names: []string{"/api"},
+	}}
+	source := &retrySource{base: base}
+	source.failures.Store(1)
+	manager := NewManager(source)
+	defer manager.Close()
+
+	subscription, err := manager.Subscribe(context.Background(), nil, time.Time{}, explorer.MaxTailStreams)
+	if err != nil {
+		t.Fatalf("Subscribe returned error after transient failure: %v", err)
+	}
+	subscription.Close()
 }
