@@ -158,6 +158,33 @@ func TestLoggingMiddlewareSkipsSuccessfulResponses(t *testing.T) {
 	}
 }
 
+func TestSecurityHeaders(t *testing.T) {
+	handler := (&Server{}).Handler()
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/health", nil))
+
+	expected := map[string]string{
+		"Content-Security-Policy": contentSecurityPolicy,
+		"X-Content-Type-Options":  "nosniff",
+		"X-Frame-Options":         "DENY",
+		"Referrer-Policy":         "strict-origin-when-cross-origin",
+		"Permissions-Policy":      "camera=(), microphone=(), geolocation=()",
+	}
+	for header, value := range expected {
+		if actual := recorder.Header().Get(header); actual != value {
+			t.Errorf("%s = %q, want %q", header, actual, value)
+		}
+	}
+}
+
+func TestWriteJSONUsesJSONContentType(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	writeJSON(recorder, http.StatusOK, map[string]bool{"ok": true})
+	if actual := recorder.Header().Get("Content-Type"); actual != "application/json; charset=utf-8" {
+		t.Fatalf("Content-Type = %q, want application/json; charset=utf-8", actual)
+	}
+}
+
 func TestReadOnlyMethodsRejectUnsupportedMethods(t *testing.T) {
 	called := false
 	handler := getOnly(func(w http.ResponseWriter, _ *http.Request) {

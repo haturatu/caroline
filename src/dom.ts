@@ -8,16 +8,15 @@ export function $$<T extends Element = HTMLElement>(selector: string): T[] {
 	return [...document.querySelectorAll<T>(selector)];
 }
 
+const htmlEscapeMap: Record<string, string> = {
+	"&": "&amp;",
+	"<": "&lt;",
+	">": "&gt;",
+	"'": "&#039;",
+	'"': "&quot;",
+};
+
+/** Escape API-provided values before interpolating them into HTML strings. */
 export function escapeHTML(value: unknown): string {
-	return String(value ?? "").replace(
-		/[&<>'"]/g,
-		(c) =>
-			({
-				"&": "&amp;",
-				"<": "&lt;",
-				">": "&gt;",
-				"'": "&#039;",
-				'"': "&quot;",
-			})[c] || c,
-	);
+	return String(value ?? "").replace(/[&<>'"]/g, (character) => htmlEscapeMap[character]);
 }
