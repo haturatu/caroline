@@ -618,7 +618,8 @@
 	font-size: 10px;
 }
 
-.alert-field input {
+.alert-field input,
+.alert-field select {
 	inline-size: 100%;
 	min-block-size: 34px;
 	padding: 7px 9px;

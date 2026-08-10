@@ -12,7 +12,7 @@ import (
 
 func TestAlertCRUD(t *testing.T) {
 	server := New(nil, nil, nil, alert.NewEngine(nil, nil))
-	body := `{"name":"API errors","query":"severity >= ERROR","threshold":2,"windowSeconds":60,"cooldownSeconds":300}`
+	body := `{"name":"API errors","query":"severity >= ERROR","severity":"critical","labels":{"service":"api"},"runbookUrl":"https://runbooks.example.test/api-errors","sampleMode":"full","threshold":2,"windowSeconds":60,"cooldownSeconds":300}`
 	createRecorder := httptest.NewRecorder()
 	server.handleAlerts(createRecorder, httptest.NewRequest(http.MethodPost, "/api/alerts", strings.NewReader(body)))
 	if createRecorder.Code != http.StatusCreated {
@@ -22,7 +22,7 @@ func TestAlertCRUD(t *testing.T) {
 	if err := json.Unmarshal(createRecorder.Body.Bytes(), &created); err != nil {
 		t.Fatalf("decode created rule: %v", err)
 	}
-	if created.Name != "API errors" || created.WebhookConfigured || created.Status != alert.StatusOK {
+	if created.Name != "API errors" || created.WebhookConfigured || created.Status != alert.StatusOK || created.Severity != "critical" || created.Labels["service"] != "api" || created.SampleMode != alert.SampleModeFull {
 		t.Fatalf("unexpected created rule: %#v", created)
 	}
 

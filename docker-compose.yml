@@ -7,6 +7,8 @@ services:
     environment:
       PORT: 8080
       ALERTS_FILE: /data/alerts.json
+      # Set this to the public URL so alert notifications can link to Explorer.
+      CAROLINE_URL: ${CAROLINE_URL:-}
     volumes:
       # Caroline only calls read APIs, but the Docker socket itself is the
       # standard Engine API transport and must be mounted to discover logs.

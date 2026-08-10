@@ -98,9 +98,9 @@ Stopping Streaming closes the SSE connection. Changing filters, the time range, 
 
 ### Alerts
 
-Create an alert from the current query with a threshold, time window, cooldown, and optional webhook URL. Discord Incoming Webhook URLs (`https://discord.com/api/webhooks/...`) are sent using Discord's `embeds` payload format; other URLs receive the generic JSON payload. The alert engine consumes the same shared Docker `follow` streams as SSE, so each running container has at most one Caroline-side follow stream regardless of how many alert rules use it.
+Create an alert from the current query with a threshold, time window, cooldown, severity, labels, an optional runbook URL, and a sample redaction mode. Discord Incoming Webhook URLs (`https://discord.com/api/webhooks/...`) are sent using Discord's `embeds` payload format; other URLs receive the generic JSON payload. Set `CAROLINE_URL` to the public Caroline URL to include a time-bounded Explorer deep link in notifications. The alert engine consumes the same shared Docker `follow` streams as SSE, so each running container has at most one Caroline-side follow stream regardless of how many alert rules use it.
 
-Rules and alert state are persisted to the JSON file configured by `ALERTS_FILE` and restored on startup. Caroline does not store log bodies or matching entries themselves; it only keeps timestamps needed for the active window. A rule transitions between `OK` and `FIRING`, and sends a webhook notification for firing and resolution events when a webhook is configured. Docker Compose stores the file in the `caroline-data` volume.
+Rules and alert state are persisted to the JSON file configured by `ALERTS_FILE` and restored on startup. Caroline does not store log bodies or matching entries themselves; it keeps timestamps and small incident metadata such as firing start, peak count, and container name. A rule transitions between `OK` and `FIRING`, and sends a webhook notification for firing and resolution events when a webhook is configured. Docker Compose stores the file in the `caroline-data` volume.
 
 ### Timeline, Fields, and Logs
 
@@ -246,6 +246,13 @@ Create a rule with JSON such as:
 {
   "name": "nginx errors",
   "query": "resource.labels.container_name = \"nginx\" AND severity >= ERROR",
+  "severity": "critical",
+  "labels": {
+    "service": "nginx",
+    "environment": "production"
+  },
+  "runbookUrl": "https://runbooks.example.test/nginx-errors",
+  "sampleMode": "summary",
   "threshold": 5,
   "windowSeconds": 60,
   "cooldownSeconds": 600,
@@ -253,7 +260,7 @@ Create a rule with JSON such as:
 }
 ~~~
 
-Webhook payloads contain `alert.firing` or `alert.resolved`, the rule name, current match count, threshold, window, timestamp, and a sample entry for firing notifications. Webhook URLs are not returned by the API.
+Webhook payloads contain `alert.firing` or `alert.resolved`, the stable rule ID, severity and labels, rule query, current and peak match counts, threshold, window, container, firing start time, timestamp, Explorer URL, runbook URL, and a redacted sample entry when enabled. `sampleMode` can be `off`, `summary`, or `full`; full samples are sanitized before leaving Caroline. Webhook URLs are not returned by the API.
 
 Discord Incoming Webhooks follow Discord's [Execute Webhook](https://docs.discord.com/developers/resources/webhook#execute-webhook) format, including an `embeds` message and `allowed_mentions: {"parse": []}`. Caroline also sends `wait=true` so Discord confirms message creation.
 

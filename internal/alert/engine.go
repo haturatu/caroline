@@ -25,19 +25,29 @@ var (
 )
 
 const (
-	alertStoreVersion       = 2
-	legacyAlertStoreVersion = 1
+	alertStoreVersion         = 3
+	legacyAlertStoreVersion   = 1
+	previousAlertStoreVersion = 2
 )
 
 type Notification struct {
-	Event           string          `json:"event"`
-	Rule            string          `json:"rule"`
-	Value           int             `json:"value"`
-	Threshold       int             `json:"threshold"`
-	WindowSeconds   int             `json:"windowSeconds"`
-	CooldownSeconds int             `json:"cooldownSeconds"`
-	Timestamp       time.Time       `json:"timestamp"`
-	Sample          *explorer.Entry `json:"sample,omitempty"`
+	Event           string            `json:"event"`
+	RuleID          string            `json:"ruleId"`
+	Rule            string            `json:"rule"`
+	Severity        string            `json:"severity,omitempty"`
+	Query           string            `json:"query"`
+	Value           int               `json:"value"`
+	PeakValue       int               `json:"peakValue,omitempty"`
+	Threshold       int               `json:"threshold"`
+	WindowSeconds   int               `json:"windowSeconds"`
+	CooldownSeconds int               `json:"cooldownSeconds"`
+	Container       string            `json:"container,omitempty"`
+	StartedAt       *time.Time        `json:"startedAt,omitempty"`
+	Timestamp       time.Time         `json:"timestamp"`
+	ExplorerURL     string            `json:"explorerUrl,omitempty"`
+	RunbookURL      string            `json:"runbookUrl,omitempty"`
+	Labels          map[string]string `json:"labels,omitempty"`
+	Sample          *explorer.Entry   `json:"sample,omitempty"`
 }
 
 type Notifier interface {
@@ -234,9 +244,16 @@ func (e *Engine) processEntry(ctx context.Context, entry explorer.Entry) {
 		state.UpdatedAt = now
 		changed = true
 		if len(state.Matches) >= rule.Threshold {
+			if state.Status == StatusFiring && len(state.Matches) > state.PeakMatches {
+				state.PeakMatches = len(state.Matches)
+			}
 			if state.Status != StatusFiring {
 				state.Status = StatusFiring
 				state.FiringNotificationSent = false
+				firingSince := now
+				state.FiringSince = &firingSince
+				state.PeakMatches = len(state.Matches)
+				state.Container = entryContainer(&entry)
 				if state.LastFiredAt == nil || now.Sub(*state.LastFiredAt) >= rule.cooldown() {
 					firedAt := now
 					state.LastFiredAt = &firedAt
@@ -244,7 +261,7 @@ func (e *Engine) processEntry(ctx context.Context, entry explorer.Entry) {
 					notifications = append(notifications, struct {
 						rule Rule
 						item Notification
-					}{rule: rule, item: notificationFor(rule, "alert.firing", len(state.Matches), now, &entry)})
+					}{rule: rule, item: notificationFor(rule, "alert.firing", len(state.Matches), state.PeakMatches, now, state.FiringSince, state.Container, &entry)})
 				}
 			}
 		}
@@ -275,6 +292,7 @@ func (e *Engine) resolve(ctx context.Context) {
 			changed = true
 		}
 		if state.Status == StatusFiring && len(state.Matches) < rule.Threshold {
+			resolved := notificationFor(rule, "alert.resolved", len(state.Matches), state.PeakMatches, now, state.FiringSince, state.Container, nil)
 			state.Status = StatusOK
 			state.UpdatedAt = now
 			changed = true
@@ -282,8 +300,11 @@ func (e *Engine) resolve(ctx context.Context) {
 				notifications = append(notifications, struct {
 					rule Rule
 					item Notification
-				}{rule: rule, item: notificationFor(rule, "alert.resolved", len(state.Matches), now, nil)})
+				}{rule: rule, item: resolved})
 			}
+			state.FiringSince = nil
+			state.PeakMatches = 0
+			state.Container = ""
 			state.FiringNotificationSent = false
 		}
 		e.states[id] = state
@@ -311,17 +332,36 @@ func (e *Engine) notify(ctx context.Context, notifications []struct {
 	}
 }
 
-func notificationFor(rule Rule, event string, value int, now time.Time, sample *explorer.Entry) Notification {
+func notificationFor(rule Rule, event string, value, peakValue int, now time.Time, startedAt *time.Time, container string, sample *explorer.Entry) Notification {
+	if container == "" {
+		container = entryContainer(sample)
+	}
 	return Notification{
 		Event:           event,
+		RuleID:          rule.ID,
 		Rule:            rule.Name,
+		Severity:        rule.Severity,
+		Query:           rule.Query,
 		Value:           value,
+		PeakValue:       peakValue,
 		Threshold:       rule.Threshold,
 		WindowSeconds:   rule.WindowSeconds,
 		CooldownSeconds: rule.CooldownSeconds,
+		Container:       container,
+		StartedAt:       cloneTime(startedAt),
 		Timestamp:       now,
-		Sample:          sample,
+		RunbookURL:      rule.RunbookURL,
+		Labels:          cloneLabels(rule.Labels),
+		Sample:          sampleForNotification(rule.SampleMode, sample),
 	}
+}
+
+func cloneTime(value *time.Time) *time.Time {
+	if value == nil {
+		return nil
+	}
+	clone := *value
+	return &clone
 }
 
 func waitForRetry(ctx context.Context, duration time.Duration) bool {
@@ -350,14 +390,18 @@ type alertStore struct {
 }
 
 type storedRule struct {
-	ID              string `json:"id"`
-	Name            string `json:"name"`
-	Query           string `json:"query"`
-	Threshold       int    `json:"threshold"`
-	WindowSeconds   int    `json:"windowSeconds"`
-	CooldownSeconds int    `json:"cooldownSeconds"`
-	Enabled         bool   `json:"enabled"`
-	WebhookURL      string `json:"webhookUrl"`
+	ID              string            `json:"id"`
+	Name            string            `json:"name"`
+	Query           string            `json:"query"`
+	Severity        string            `json:"severity,omitempty"`
+	Labels          map[string]string `json:"labels,omitempty"`
+	RunbookURL      string            `json:"runbookUrl,omitempty"`
+	SampleMode      string            `json:"sampleMode,omitempty"`
+	Threshold       int               `json:"threshold"`
+	WindowSeconds   int               `json:"windowSeconds"`
+	CooldownSeconds int               `json:"cooldownSeconds"`
+	Enabled         bool              `json:"enabled"`
+	WebhookURL      string            `json:"webhookUrl"`
 }
 
 func (e *Engine) load() error {
@@ -375,7 +419,7 @@ func (e *Engine) load() error {
 	if err := decoder.Decode(&store); err != nil {
 		return fmt.Errorf("decode %q: %w", e.store, err)
 	}
-	if store.Version != legacyAlertStoreVersion && store.Version != alertStoreVersion {
+	if store.Version != legacyAlertStoreVersion && store.Version != previousAlertStoreVersion && store.Version != alertStoreVersion {
 		return fmt.Errorf("unsupported alert store version %d", store.Version)
 	}
 
@@ -388,6 +432,10 @@ func (e *Engine) load() error {
 		rule, err := normalizeSpec(RuleSpec{
 			Name:            saved.Name,
 			Query:           saved.Query,
+			Severity:        saved.Severity,
+			Labels:          saved.Labels,
+			RunbookURL:      saved.RunbookURL,
+			SampleMode:      saved.SampleMode,
 			Threshold:       saved.Threshold,
 			WindowSeconds:   saved.WindowSeconds,
 			CooldownSeconds: saved.CooldownSeconds,
@@ -416,6 +464,22 @@ func (e *Engine) load() error {
 		state.Matches = trimMatches(state.Matches, now.Add(-rule.window()))
 		if state.Status == StatusFiring && len(state.Matches) < rule.Threshold {
 			state.Status = StatusOK
+			state.FiringSince = nil
+			state.PeakMatches = 0
+			state.Container = ""
+			state.FiringNotificationSent = false
+		}
+		if state.Status == StatusFiring {
+			if state.FiringSince == nil {
+				candidate := state.LastFiredAt
+				if candidate == nil && !state.UpdatedAt.IsZero() {
+					candidate = &state.UpdatedAt
+				}
+				state.FiringSince = cloneTime(candidate)
+			}
+			if state.PeakMatches < len(state.Matches) {
+				state.PeakMatches = len(state.Matches)
+			}
 		}
 		if state.UpdatedAt.IsZero() {
 			state.UpdatedAt = now
@@ -447,6 +511,10 @@ func (e *Engine) saveLocked() error {
 			ID:              rule.ID,
 			Name:            rule.Name,
 			Query:           rule.Query,
+			Severity:        rule.Severity,
+			Labels:          cloneLabels(rule.Labels),
+			RunbookURL:      rule.RunbookURL,
+			SampleMode:      rule.SampleMode,
 			Threshold:       rule.Threshold,
 			WindowSeconds:   rule.WindowSeconds,
 			CooldownSeconds: rule.CooldownSeconds,

@@ -89,9 +89,9 @@ Streaming を停止すると SSE 接続を閉じます。フィルター、時�
 
 ### Alerts
 
-現在のクエリから、しきい値、時間枠、クールダウン、任意の Webhook URL を指定してアラートを作成できます。Discord Incoming Webhook（`https://discord.com/api/webhooks/...`）を指定した場合は、Discord の `embeds` 形式で通知します。その他の URL には従来の汎用 JSON payload を送信します。アラートエンジンは SSE と同じ共有 Docker `follow` ストリームを利用するため、複数のルールが同じコンテナを対象にしても Caroline 側の follow ストリームはコンテナごとに 1 本です。
+現在のクエリから、しきい値、時間枠、クールダウン、severity、labels、任意の Runbook URL、サンプルの秘匿化モードを指定してアラートを作成できます。Discord Incoming Webhook（`https://discord.com/api/webhooks/...`）を指定した場合は、Discord の `embeds` 形式で通知します。その他の URL には汎用 JSON payload を送信します。公開 URL を `CAROLINE_URL` に設定すると、通知に時間範囲付きの Explorer へのリンクを含めます。アラートエンジンは SSE と同じ共有 Docker `follow` ストリームを利用するため、複数のルールが同じコンテナを対象にしても Caroline 側の follow ストリームはコンテナごとに 1 本です。
 
-ルールとアラート状態は `ALERTS_FILE` のJSONファイルへ保存され、起動時に復元されます。ログ本文や一致したエントリ自体は保存せず、時間枠の集計に必要なタイムスタンプだけを保持します。状態が `OK` と `FIRING` の間で遷移し、Webhook を設定したルールでは発火・解消時に通知します。Docker Composeでは `caroline-data` volume に保存されます。
+ルールとアラート状態は `ALERTS_FILE` のJSONファイルへ保存され、起動時に復元されます。ログ本文や一致したエントリ自体は保存せず、時間枠の集計と通知に必要なタイムスタンプ、発火開始時刻、peak 件数、container 名などの小さなメタデータだけを保持します。状態が `OK` と `FIRING` の間で遷移し、Webhook を設定したルールでは発火・解消時に通知します。Docker Composeでは `caroline-data` volume に保存されます。
 
 ### Timeline / Fields / Logs
 
@@ -239,6 +239,13 @@ SSE エンドポイントとアラートエンジンは `logstream.Manager` を�
 {
   "name": "nginx errors",
   "query": "resource.labels.container_name = \"nginx\" AND severity >= ERROR",
+  "severity": "critical",
+  "labels": {
+    "service": "nginx",
+    "environment": "production"
+  },
+  "runbookUrl": "https://runbooks.example.test/nginx-errors",
+  "sampleMode": "summary",
   "threshold": 5,
   "windowSeconds": 60,
   "cooldownSeconds": 600,
@@ -246,7 +253,7 @@ SSE エンドポイントとアラートエンジンは `logstream.Manager` を�
 }
 ```
 
-Webhook payload には `alert.firing` または `alert.resolved`、ルール名、現在の一致数、しきい値、時間枠、時刻、発火時のサンプルエントリが含まれます。Webhook URL 自体は API のレスポンスに含めません。
+Webhook payload には `alert.firing` または `alert.resolved`、stable な Rule ID、severity と labels、ルール Query、現在値と peak 値、しきい値、時間枠、container、発火開始時刻、通知時刻、Explorer URL、Runbook URL、秘匿化済みのサンプルエントリが含まれます。`sampleMode` は `off` / `summary` / `full` から選べ、full でも Caroline 外へ送信する前に秘匿化します。Webhook URL 自体は API のレスポンスに含めません。
 
 Discord Incoming Webhook は Discord の [Execute Webhook](https://docs.discord.com/developers/resources/webhook#execute-webhook) 仕様に合わせ、`embeds` と `allowed_mentions: {"parse": []}` を含めて送信します。Discord 側の送信確認を得るため `wait=true` も付与します。
 
