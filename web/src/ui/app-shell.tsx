@@ -155,6 +155,14 @@ export function AppShell(): Node {
 								<p>Search and inspect Docker container output.</p>
 							</div>
 							<div className="heading-actions">
+								<button
+									className="text-button"
+									id="createAlertButton"
+									type="button"
+									data-i18n="alerts.create"
+								>
+									Create Alert
+								</button>
 								<button className="text-button" id="shareButton" type="button">
 									Share Link
 								</button>
@@ -162,6 +170,7 @@ export function AppShell(): Node {
 						</div>
 
 						<QueryPanel />
+						<AlertsPanel />
 
 						<div
 							className="error-banner"
@@ -204,6 +213,117 @@ export function AppShell(): Node {
 					</main>
 				</div>
 			</div>
+
+			<dialog
+				className="alert-dialog"
+				id="alertDialog"
+				aria-labelledby="alertDialogTitle"
+			>
+				<form id="alertForm">
+					<div className="dialog-heading">
+						<div>
+							<div className="section-kicker" data-i18n="alerts.title">
+								Log Alerts
+							</div>
+							<h2 id="alertDialogTitle" data-i18n="alerts.createTitle">
+								Create Log Alert
+							</h2>
+						</div>
+						<button
+							className="icon-button"
+							id="closeAlertButton"
+							type="button"
+							aria-label="Close"
+						>
+							×
+						</button>
+					</div>
+					<label className="alert-field">
+						<span data-i18n="alerts.name">Name</span>
+						<input
+							id="alertNameInput"
+							name="name"
+							required
+							data-i18n-placeholder="alerts.namePlaceholder"
+							placeholder="e.g. API errors"
+						/>
+					</label>
+					<div className="alert-field">
+						<span data-i18n="alerts.query">Query</span>
+						<code className="alert-query-preview" id="alertQueryPreview">
+							All Logs
+						</code>
+					</div>
+					<div className="alert-number-grid">
+						<label className="alert-field">
+							<span data-i18n="alerts.thresholdLabel">
+								Matches before firing
+							</span>
+							<input
+								id="alertThresholdInput"
+								name="threshold"
+								type="number"
+								min="1"
+								max="1000000"
+								defaultValue="1"
+								required
+							/>
+						</label>
+						<label className="alert-field">
+							<span data-i18n="alerts.window">Window (seconds)</span>
+							<input
+								id="alertWindowInput"
+								name="windowSeconds"
+								type="number"
+								min="1"
+								max="604800"
+								defaultValue="60"
+								required
+							/>
+						</label>
+						<label className="alert-field">
+							<span data-i18n="alerts.cooldown">Cooldown (seconds)</span>
+							<input
+								id="alertCooldownInput"
+								name="cooldownSeconds"
+								type="number"
+								min="0"
+								max="2592000"
+								defaultValue="600"
+								required
+							/>
+						</label>
+					</div>
+					<label className="alert-field">
+						<span data-i18n="alerts.webhook">Webhook URL</span>
+						<input
+							id="alertWebhookInput"
+							name="webhookUrl"
+							type="url"
+							data-i18n-placeholder="alerts.webhookOptional"
+							placeholder="Optional generic webhook"
+						/>
+					</label>
+					<div className="dialog-actions">
+						<button
+							className="text-button"
+							id="cancelAlertButton"
+							type="button"
+							data-i18n="alerts.cancel"
+						>
+							Cancel
+						</button>
+						<button
+							className="run-button"
+							id="saveAlertButton"
+							type="submit"
+							data-i18n="alerts.save"
+						>
+							Create Alert
+						</button>
+					</div>
+				</form>
+			</dialog>
 
 			<dialog
 				className="detail-drawer"
@@ -416,6 +536,31 @@ function QueryPanel(): Node {
 						Combine clauses with <code>AND</code> or <code>OR</code>.
 					</p>
 				</div>
+			</div>
+		</section>
+	);
+}
+
+function AlertsPanel(): Node {
+	return (
+		<section className="alerts-panel" aria-labelledby="alerts-title">
+			<div className="panel-heading">
+				<h2 id="alerts-title" data-i18n="alerts.title">
+					Log Alerts
+				</h2>
+				<button
+					className="text-button"
+					id="refreshAlertsButton"
+					type="button"
+					data-i18n="alerts.refresh"
+				>
+					Refresh Alerts
+				</button>
+			</div>
+			<div id="alertList">
+				<p className="alerts-empty">
+					No alert rules yet. Create one from the current query.
+				</p>
 			</div>
 		</section>
 	);

@@ -19,39 +19,38 @@ func (s *Server) handleTail(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
+	if s.streams == nil {
+		writeError(w, http.StatusServiceUnavailable, "live log streaming is unavailable")
+		return
+	}
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, "streaming is not supported by this server")
 		return
 	}
 
-	request := explorer.TailRequest{
-		Since:    parseTailSince(r.URL.Query().Get("since")),
-		Query:    strings.TrimSpace(r.URL.Query().Get("q")),
-		Severity: strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("severity"))),
-		Stream:   strings.ToLower(strings.TrimSpace(r.URL.Query().Get("stream"))),
-		Selected: explorer.RequestedContainers(r.URL.Query().Get("containers")),
+	since := parseTailSince(r.URL.Query().Get("since"))
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	severity := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("severity")))
+	stream := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("stream")))
+	selected := explorer.RequestedContainers(r.URL.Query().Get("containers"))
+
+	tailContext, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	subscription, err := s.streams.Subscribe(
+		tailContext,
+		selected,
+		since,
+		explorer.MaxTailStreams,
+	)
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, dockerUnavailableMessage(err))
+		return
 	}
+	defer subscription.Close()
 
 	setSSEHeaders(w)
 	w.WriteHeader(http.StatusOK)
-	tailContext, cancel := context.WithCancel(r.Context())
-	defer cancel()
-
-	events := make(chan explorer.StreamEvent)
-	serviceDone := make(chan error, 1)
-	go func() {
-		serviceDone <- s.explorer.Tail(tailContext, request, func(event explorer.StreamEvent) error {
-			select {
-			case events <- event:
-				return nil
-			case <-tailContext.Done():
-				return tailContext.Err()
-			}
-		})
-		close(events)
-	}()
-
 	var writeMu sync.Mutex
 	send := func(event string, value any) error {
 		writeMu.Lock()
@@ -64,18 +63,46 @@ func (s *Server) handleTail(w http.ResponseWriter, r *http.Request) {
 		return nil
 	}
 
+	if err := send("ready", map[string]any{
+		"since":              since,
+		"generatedAt":        time.Now().UTC(),
+		"selectedContainers": subscription.SelectedContainers,
+		"streamedContainers": subscription.StreamedContainers,
+	}); err != nil {
+		return
+	}
+	if subscription.StreamedContainers < subscription.SelectedContainers {
+		if err := send("warning", map[string]any{
+			"message":   fmt.Sprintf("Live tail is limited to %d containers.", explorer.MaxTailStreams),
+			"streamed":  subscription.StreamedContainers,
+			"requested": subscription.SelectedContainers,
+		}); err != nil {
+			return
+		}
+	}
+
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
 	for {
 		select {
-		case event, open := <-events:
+		case entry, open := <-subscription.Entries:
 			if !open {
-				if err := <-serviceDone; err != nil && tailContext.Err() == nil {
-					_ = send("error", map[string]string{"message": dockerUnavailableMessage(err)})
-				}
 				return
 			}
-			if err := send(event.Name, event.Data); err != nil {
+			if entry.Timestamp.Before(since) || !explorer.MatchesFilters(entry, query, severity, stream) {
+				continue
+			}
+			if err := send("log", entry); err != nil {
+				return
+			}
+		case streamError, open := <-subscription.Errors:
+			if !open {
+				return
+			}
+			if err := send("error", map[string]string{
+				"container": explorer.ContainerName(streamError.Container),
+				"message":   streamError.Err.Error(),
+			}); err != nil {
 				return
 			}
 		case <-tailContext.Done():

@@ -67,6 +67,21 @@ export interface ExplorerResponse {
 	errors?: string[];
 }
 
+export interface AlertRule {
+	id: string;
+	name: string;
+	query: string;
+	threshold: number;
+	windowSeconds: number;
+	cooldownSeconds: number;
+	enabled: boolean;
+	webhookConfigured: boolean;
+	status: "OK" | "FIRING" | string;
+	matchCount: number;
+	lastFiredAt?: string;
+	updatedAt: string;
+}
+
 export interface AppState {
 	query: string;
 	draftQuery: string;
@@ -100,6 +115,11 @@ export interface AppState {
 		explorer: string;
 	};
 	errorDetails: string[];
+	alerts: {
+		rules: AlertRule[];
+		loading: boolean;
+		error: string;
+	};
 }
 
 export interface QuerySuggestion {

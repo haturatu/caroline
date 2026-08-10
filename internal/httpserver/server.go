@@ -6,8 +6,10 @@ import (
 	"os"
 	"time"
 
+	"caroline/internal/alert"
 	"caroline/internal/docker"
 	"caroline/internal/explorer"
+	"caroline/internal/logstream"
 )
 
 const defaultPort = "8080"
@@ -15,10 +17,22 @@ const defaultPort = "8080"
 type Server struct {
 	docker   *docker.Client
 	explorer *explorer.Service
+	streams  *logstream.Manager
+	alerts   *alert.Engine
 }
 
-func New(explorerService *explorer.Service, dockerClient *docker.Client) *Server {
-	return &Server{docker: dockerClient, explorer: explorerService}
+func New(
+	explorerService *explorer.Service,
+	dockerClient *docker.Client,
+	streamManager *logstream.Manager,
+	alertEngine *alert.Engine,
+) *Server {
+	return &Server{
+		docker:   dockerClient,
+		explorer: explorerService,
+		streams:  streamManager,
+		alerts:   alertEngine,
+	}
 }
 
 func (s *Server) Handler() http.Handler {
@@ -27,6 +41,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/status", getOnly(s.handleStatus))
 	mux.HandleFunc("/api/explorer", getOnly(s.handleExplorer))
 	mux.HandleFunc("/api/tail", getOnly(s.handleTail))
+	mux.HandleFunc("/api/alerts", s.handleAlerts)
+	mux.HandleFunc("/api/alerts/", s.handleAlert)
 	mux.Handle("/", http.FileServer(http.Dir("static")))
 	return securityHeaders(loggingMiddleware(mux))
 }

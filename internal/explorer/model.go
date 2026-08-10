@@ -104,19 +104,6 @@ type SearchRequest struct {
 	TimelineBuckets int
 }
 
-type TailRequest struct {
-	Since    time.Time
-	Query    string
-	Severity string
-	Stream   string
-	Selected map[string]bool
-}
-
-type StreamEvent struct {
-	Name string
-	Data any
-}
-
 type source interface {
 	ListRunning(context.Context) ([]docker.Container, error)
 	Logs(context.Context, string, int, time.Time) ([]docker.Frame, error)
