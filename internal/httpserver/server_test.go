@@ -50,7 +50,7 @@ func TestHandleExplorer(t *testing.T) {
 
 	dockerClient := docker.NewClient(testServer.URL)
 	server := New(explorer.NewService(dockerClient), dockerClient)
-	req := httptest.NewRequest(http.MethodGet, "/api/explorer?from=2026-08-09T02:59:00Z&to=2026-08-09T03:03:00Z&q=severity%20%3E%3D%20ERROR&limit=10", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/explorer?from=2026-08-09T02:59:00Z&to=2026-08-09T03:03:00Z&q=severity%20%3E%3D%20ERROR&limit=10&timelineBuckets=48", nil)
 	recorder := httptest.NewRecorder()
 	server.handleExplorer(recorder, req)
 	if recorder.Code != http.StatusOK {
@@ -63,7 +63,7 @@ func TestHandleExplorer(t *testing.T) {
 	if response.Total != 1 || len(response.Entries) != 1 || response.Entries[0].Severity != "ERROR" {
 		t.Fatalf("unexpected explorer result: total=%d entries=%d severity=%s", response.Total, len(response.Entries), response.Entries[0].Severity)
 	}
-	if len(response.Timeline) != 24 || len(response.Fields) == 0 {
+	if len(response.Timeline) != 48 || len(response.Fields) == 0 {
 		t.Fatalf("expected timeline and fields, got timeline=%d fields=%d", len(response.Timeline), len(response.Fields))
 	}
 	if response.LogTail != explorer.MaxLogTail || response.EntryLimit != explorer.MaxEntries || response.Truncated {

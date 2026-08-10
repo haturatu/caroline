@@ -3,6 +3,16 @@ import { t } from "./i18n/index.js";
 import type { ExplorerEntry, ExplorerResponse, Severity } from "./types.js";
 
 const supportedDurations = ["5m", "15m", "1h", "6h", "24h", "7d"];
+export const minTimelineBuckets = 24;
+export const maxTimelineBuckets = 96;
+let timelineBuckets = minTimelineBuckets;
+
+export function setTimelineBuckets(value: number): void {
+	timelineBuckets = Math.min(
+		maxTimelineBuckets,
+		Math.max(minTimelineBuckets, Math.round(value)),
+	);
+}
 
 function quoteQueryValue(value: string): string {
 	return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
@@ -107,6 +117,7 @@ export function buildExplorerURL(): string {
 		duration: state.duration,
 		limit: "100",
 		sort: state.sort,
+		timelineBuckets: String(timelineBuckets),
 	});
 	const query = buildExplorerQuery();
 	if (query) params.set("q", query);
