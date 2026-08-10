@@ -1,7 +1,9 @@
 package httpserver
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"log"
@@ -15,6 +17,7 @@ import (
 
 	"caroline/internal/docker"
 	"caroline/internal/explorer"
+	"caroline/internal/logstream"
 )
 
 func testDockerFrame(stream byte, payload string) []byte {
@@ -49,7 +52,7 @@ func TestHandleExplorer(t *testing.T) {
 	defer testServer.Close()
 
 	dockerClient := docker.NewClient(testServer.URL)
-	server := New(explorer.NewService(dockerClient), dockerClient)
+	server := New(explorer.NewService(dockerClient), dockerClient, logstream.NewManager(dockerClient), nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/explorer?from=2026-08-09T02:59:00Z&to=2026-08-09T03:03:00Z&q=severity%20%3E%3D%20ERROR&limit=10&timelineBuckets=48", nil)
 	recorder := httptest.NewRecorder()
 	server.handleExplorer(recorder, req)
@@ -124,7 +127,7 @@ func TestHandleExplorerLimitsDockerConcurrency(t *testing.T) {
 	}))
 	defer testServer.Close()
 	dockerClient := docker.NewClient(testServer.URL)
-	server := New(explorer.NewService(dockerClient), dockerClient)
+	server := New(explorer.NewService(dockerClient), dockerClient, logstream.NewManager(dockerClient), nil)
 	recorder := httptest.NewRecorder()
 	server.handleExplorer(recorder, httptest.NewRequest(http.MethodGet, "/api/explorer?from=2026-08-09T02:59:00Z&to=2026-08-09T03:01:00Z&limit=100", nil))
 	if recorder.Code != http.StatusOK {
@@ -236,14 +239,47 @@ func TestHandleTailStreamsFollowLogs(t *testing.T) {
 	}))
 	defer testServer.Close()
 	dockerClient := docker.NewClient(testServer.URL)
-	server := New(explorer.NewService(dockerClient), dockerClient)
-	recorder := httptest.NewRecorder()
-	server.handleTail(recorder, httptest.NewRequest(http.MethodGet, "/api/tail?since=2026-08-09T03:00:00Z&severity=ERROR", nil))
-	if recorder.Code != http.StatusOK || followValue != "1" {
-		t.Fatalf("handleTail returned status=%d follow=%q body=%s", recorder.Code, followValue, recorder.Body.String())
+	streamManager := logstream.NewManager(dockerClient)
+	defer streamManager.Close()
+	server := New(explorer.NewService(dockerClient), dockerClient, streamManager, nil)
+	appServer := httptest.NewServer(server.Handler())
+	defer appServer.Close()
+	requestContext, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	request, err := http.NewRequestWithContext(
+		requestContext,
+		http.MethodGet,
+		appServer.URL+"/api/tail?since=2026-08-09T03:00:00Z&severity=ERROR",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("create tail request: %v", err)
 	}
-	body := recorder.Body.String()
-	if !strings.Contains(body, "event: ready") || !strings.Contains(body, "event: log") || !strings.Contains(body, "live failure") {
-		t.Fatalf("unexpected SSE body: %s", body)
+	response, err := appServer.Client().Do(request)
+	if err != nil {
+		t.Fatalf("tail request failed: %v", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("tail returned status %d", response.StatusCode)
+	}
+	var body strings.Builder
+	reader := bufio.NewReader(response.Body)
+	for {
+		line, readErr := reader.ReadString('\n')
+		body.WriteString(line)
+		if strings.Contains(body.String(), "live failure") {
+			break
+		}
+		if readErr != nil {
+			t.Fatalf("read SSE response: %v; body=%s", readErr, body.String())
+		}
+	}
+	cancel()
+	if followValue != "1" {
+		t.Fatalf("tail used follow=%q, want 1", followValue)
+	}
+	if !strings.Contains(body.String(), "event: ready") || !strings.Contains(body.String(), "event: log") {
+		t.Fatalf("unexpected SSE body: %s", body.String())
 	}
 }
