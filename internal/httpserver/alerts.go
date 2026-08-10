@@ -50,7 +50,15 @@ func (s *Server) handleAlert(w http.ResponseWriter, r *http.Request) {
 		s.updateAlert(w, r, id)
 	case http.MethodDelete:
 		if err := s.alerts.Delete(id); err != nil {
-			writeError(w, http.StatusNotFound, "alert rule was not found")
+			if errors.Is(err, alert.ErrRuleNotFound) {
+				writeError(w, http.StatusNotFound, "alert rule was not found")
+				return
+			}
+			if errors.Is(err, alert.ErrPersistence) {
+				writeError(w, http.StatusInternalServerError, "could not persist alert rule")
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "could not delete alert rule")
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -67,6 +75,10 @@ func (s *Server) createAlert(w http.ResponseWriter, r *http.Request) {
 	}
 	view, err := s.alerts.Create(spec)
 	if err != nil {
+		if errors.Is(err, alert.ErrPersistence) {
+			writeError(w, http.StatusInternalServerError, "could not persist alert rule")
+			return
+		}
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -83,6 +95,10 @@ func (s *Server) updateAlert(w http.ResponseWriter, r *http.Request, id string) 
 	if err != nil {
 		if errors.Is(err, alert.ErrRuleNotFound) {
 			writeError(w, http.StatusNotFound, "alert rule was not found")
+			return
+		}
+		if errors.Is(err, alert.ErrPersistence) {
+			writeError(w, http.StatusInternalServerError, "could not persist alert rule")
 			return
 		}
 		writeError(w, http.StatusBadRequest, err.Error())
