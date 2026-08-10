@@ -26,6 +26,7 @@ const (
 	providerGeneric webhookProvider = "generic"
 	providerDiscord webhookProvider = "discord"
 	providerSlack   webhookProvider = "slack"
+	providerNtfy    webhookProvider = "ntfy"
 )
 
 func (w Webhook) Notify(ctx context.Context, rule alert.Rule, notification alert.Notification) error {
@@ -54,6 +55,9 @@ func (w Webhook) Notify(ctx context.Context, rule alert.Rule, notification alert
 		body, err = json.Marshal(discordPayload(notification))
 	case providerSlack:
 		body, err = json.Marshal(buildSlackPayload(notification))
+	case providerNtfy:
+		body = []byte(ntfyMessage(notification))
+		headers = ntfyHeaders(notification)
 	case providerGeneric:
 		body, err = json.Marshal(notification)
 	}
@@ -322,6 +326,10 @@ func detectWebhookProvider(raw string) webhookProvider {
 	case "hooks.slack.com", "hooks.slack-gov.com":
 		if strings.HasPrefix(path, "/services/") {
 			return providerSlack
+		}
+	case "ntfy.sh":
+		if strings.Trim(path, "/") != "" {
+			return providerNtfy
 		}
 	}
 	return providerGeneric

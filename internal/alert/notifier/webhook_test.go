@@ -124,6 +124,54 @@ func TestWebhookNotifyUsesSlackPayload(t *testing.T) {
 	}
 }
 
+func TestWebhookNotifyUsesNtfyPayload(t *testing.T) {
+	var request *http.Request
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		request = r
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Body:       io.NopCloser(strings.NewReader("")),
+			Header:     make(http.Header),
+			Request:    r,
+		}, nil
+	})}
+
+	notification := testNotification()
+	notification.Container = "api-1"
+	err := (Webhook{Client: client, ExplorerBaseURL: "https://caroline.example.test"}).Notify(context.Background(), alert.Rule{
+		WebhookURL: "https://ntfy.sh/caroline-alerts",
+	}, notification)
+	if err != nil {
+		t.Fatalf("Notify returned error: %v", err)
+	}
+	if request == nil {
+		t.Fatal("ntfy request was not sent")
+	}
+	if got := request.Header.Get("Content-Type"); got != "text/plain; charset=utf-8" {
+		t.Fatalf("ntfy request Content-Type = %q", got)
+	}
+	if got := request.Header.Get("Title"); got != "🔴 FIRING · API errors" {
+		t.Fatalf("ntfy request Title = %q", got)
+	}
+	if got := request.Header.Get("Priority"); got != "5" {
+		t.Fatalf("ntfy request Priority = %q", got)
+	}
+	if got := request.Header.Get("Tags"); got != "rotating_light" {
+		t.Fatalf("ntfy request Tags = %q", got)
+	}
+	if !strings.Contains(request.Header.Get("Click"), "q=severity%3E%3DERROR") {
+		t.Fatalf("ntfy request Click did not include Explorer URL: %q", request.Header.Get("Click"))
+	}
+	body, err := io.ReadAll(request.Body)
+	if err != nil {
+		t.Fatalf("read ntfy body: %v", err)
+	}
+	if !strings.Contains(string(body), "Container: api-1") || !strings.Contains(string(body), "Condition: 2 matches >= 1 / 1m") {
+		t.Fatalf("unexpected ntfy body: %q", body)
+	}
+}
+
 func TestIsDiscordWebhookURL(t *testing.T) {
 	for _, test := range []struct {
 		name string
@@ -151,6 +199,7 @@ func TestDetectWebhookProvider(t *testing.T) {
 	}{
 		{name: "discord", url: "https://discord.com/api/webhooks/123/token", provider: providerDiscord},
 		{name: "slack", url: "https://hooks.slack.com/services/T000/B000/token", provider: providerSlack},
+		{name: "ntfy", url: "https://ntfy.sh/caroline-alerts", provider: providerNtfy},
 		{name: "generic", url: "https://alerts.example.test/caroline", provider: providerGeneric},
 		{name: "insecure discord", url: "http://discord.com/api/webhooks/123/token", provider: providerGeneric},
 	} {
