@@ -1,5 +1,6 @@
 :root {
 	color-scheme: dark;
+	--app-header-height: 52px;
 	--bg: light-dark(#f8fafd, #202124);
 	--surface: light-dark(#fff, #202124);
 	--surface-soft: light-dark(#f1f3f4, #292a2d);

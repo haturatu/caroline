@@ -25,21 +25,21 @@
 	}
 
 	.global-header {
-		block-size: calc(52px + env(safe-area-inset-top));
+		block-size: calc(var(--app-header-height) + env(safe-area-inset-top));
 		padding-block-start: env(safe-area-inset-top);
 		padding-inline-end: max(14px, env(safe-area-inset-right));
 		padding-inline-start: max(14px, env(safe-area-inset-left));
 	}
 
 	.workspace-layout {
-		min-block-size: calc(100vh - 52px - env(safe-area-inset-top));
-		min-block-size: calc(100dvh - 52px - env(safe-area-inset-top));
+		min-block-size: calc(100vh - var(--app-header-height) - env(safe-area-inset-top));
+		min-block-size: calc(100dvh - var(--app-header-height) - env(safe-area-inset-top));
 	}
 
 	.side-nav {
 		position: fixed;
 		z-index: 25;
-		inset-block-start: calc(52px + env(safe-area-inset-top));
+		inset-block-start: calc(var(--app-header-height) + env(safe-area-inset-top));
 		inset-block-end: 0;
 		inset-inline-start: 0;
 		display: flex;
@@ -91,7 +91,7 @@
 	.fields-open .mobile-nav-backdrop {
 		position: fixed;
 		z-index: 22;
-		inset-block-start: calc(52px + env(safe-area-inset-top));
+		inset-block-start: calc(var(--app-header-height) + env(safe-area-inset-top));
 		inset-inline: 0;
 		inset-block-end: 0;
 		display: block;
@@ -285,16 +285,20 @@
 }
 
 @media (max-width: 500px) {
+	:root {
+		--app-header-height: 56px;
+	}
+
 	.global-header {
-		block-size: calc(56px + env(safe-area-inset-top));
+		block-size: calc(var(--app-header-height) + env(safe-area-inset-top));
 		padding-block-start: env(safe-area-inset-top);
 		padding-inline-end: max(10px, env(safe-area-inset-right));
 		padding-inline-start: max(10px, env(safe-area-inset-left));
 	}
 
 	.workspace-layout {
-		min-block-size: calc(100vh - 56px - env(safe-area-inset-top));
-		min-block-size: calc(100dvh - 56px - env(safe-area-inset-top));
+		min-block-size: calc(100vh - var(--app-header-height) - env(safe-area-inset-top));
+		min-block-size: calc(100dvh - var(--app-header-height) - env(safe-area-inset-top));
 	}
 
 	.brand-name {
@@ -302,12 +306,12 @@
 	}
 
 	.side-nav {
-		inset-block-start: calc(56px + env(safe-area-inset-top));
+		inset-block-start: calc(var(--app-header-height) + env(safe-area-inset-top));
 	}
 
 	.nav-expanded .mobile-nav-backdrop,
 	.fields-open .mobile-nav-backdrop {
-		inset-block-start: calc(56px + env(safe-area-inset-top));
+		inset-block-start: calc(var(--app-header-height) + env(safe-area-inset-top));
 		inset-inline: 0;
 		inset-block-end: 0;
 	}
