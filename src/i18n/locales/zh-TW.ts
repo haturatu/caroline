@@ -180,6 +180,7 @@ export const zhTW = {
 		stream: "串流",
 		copyEntry: "複製項目 JSON",
 		copied: "已複製項目 JSON。",
+		copyFailed: "複製失敗，請檢查瀏覽器權限。",
 	},
 	errors: {
 		requestFailed: "要求失敗 ({status})",
