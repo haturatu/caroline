@@ -29,6 +29,8 @@ export function AppShell(): Node {
 							className="header-action"
 							id="headerMenuButton"
 							type="button"
+							popovertarget="headerMenu"
+							popovertargetaction="toggle"
 							aria-label="Open workspace options"
 							aria-controls="headerMenu"
 							aria-expanded="false"
@@ -36,7 +38,7 @@ export function AppShell(): Node {
 						>
 							⋮
 						</button>
-						<div className="header-menu" id="headerMenu" hidden>
+						<div className="header-menu" id="headerMenu" popover="auto">
 							<button
 								className="menu-item"
 								id="themeToggleButton"
@@ -174,16 +176,10 @@ export function AppShell(): Node {
 							</span>
 							<span className="error-content">
 								<span id="errorMessage" />
-								<button
-									className="text-button error-details-toggle"
-									id="errorDetailsToggle"
-									type="button"
-									aria-expanded="false"
-									hidden
-								>
-									View Details
-								</button>
-								<span className="error-details" id="errorDetails" hidden />
+								<details className="error-details" id="errorDetails" hidden>
+									<summary>View Details</summary>
+									<ul id="errorDetailsList" />
+								</details>
 							</span>
 							<button className="text-button" id="errorDismiss" type="button">
 								Dismiss
@@ -209,14 +205,10 @@ export function AppShell(): Node {
 				</div>
 			</div>
 
-			<aside
+			<dialog
 				className="detail-drawer"
 				id="detailDrawer"
-				role="dialog"
-				aria-modal="true"
 				aria-labelledby="detailTitle"
-				tabIndex={-1}
-				hidden
 			>
 				<div className="detail-drawer-header">
 					<div>
@@ -234,7 +226,7 @@ export function AppShell(): Node {
 					</button>
 				</div>
 				<div id="detailBody" />
-			</aside>
+			</dialog>
 			<div
 				className="toast"
 				id="toast"
@@ -399,6 +391,8 @@ function QueryPanel(): Node {
 					className="text-button"
 					id="queryHelpButton"
 					type="button"
+					popovertarget="queryHelpPopover"
+					popovertargetaction="toggle"
 					aria-expanded="false"
 					aria-controls="queryHelpPopover"
 				>
@@ -407,9 +401,9 @@ function QueryPanel(): Node {
 				<div
 					className="query-help-popover"
 					id="queryHelpPopover"
+					popover="auto"
 					role="dialog"
 					aria-labelledby="queryHelpTitle"
-					hidden
 				>
 					<strong id="queryHelpTitle">Caroline Query Syntax</strong>
 					<p>Inspired by Google Cloud Logging syntax. Not fully compatible.</p>
@@ -547,9 +541,9 @@ function ResultsPanel(): Node {
 				<div>
 					<div className="results-title-row">
 						<h2 id="results-title">Logs Explorer</h2>
-						<span className="result-count" id="resultCount">
+						<output className="result-count" id="resultCount">
 							—
-						</span>
+						</output>
 						<span
 							className="approximate-badge"
 							id="approximateBadge"
@@ -557,10 +551,9 @@ function ResultsPanel(): Node {
 						>
 							Partial
 						</span>
-						<span
+						<output
 							className="refresh-status"
 							id="refreshStatus"
-							role="status"
 							aria-live="polite"
 						/>
 					</div>

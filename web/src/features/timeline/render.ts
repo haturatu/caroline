@@ -42,9 +42,9 @@ function timelineBucketAriaLabel(bucket: TimelineBucket): string {
 	};
 	const breakdown = ["ERROR", "WARNING", "INFO", "DEBUG"]
 		.filter((severity) => (bucket.severities[severity] || 0) > 0)
-			.map((severity) =>
-				t("timeline.severityCount", {
-					count: formatNumber(bucket.severities[severity] || 0),
+		.map((severity) =>
+			t("timeline.severityCount", {
+				count: formatNumber(bucket.severities[severity] || 0),
 				severity: severityLabels[severity],
 			}),
 		)
@@ -242,7 +242,7 @@ export function renderTimeline(): void {
 				: index === tickCount - 1
 					? response.to
 					: response.timeline[bucketIndex].start;
-		return `<span title="${escapeHTML(formatTime(value))}">${formatTimelineAxisTick(value, response.from, response.to)}</span>`;
+		return `<time datetime="${escapeHTML(value)}" title="${escapeHTML(formatTime(value))}">${formatTimelineAxisTick(value, response.from, response.to)}</time>`;
 	}).join("");
 	if (!chart.dataset.cursorBound) {
 		chart.addEventListener("mousemove", (event: MouseEvent) => {
