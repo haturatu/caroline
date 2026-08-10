@@ -1,6 +1,6 @@
-import { state } from "./state.js";
-import { t } from "./i18n/index.js";
-import type { ExplorerEntry, ExplorerResponse, Severity } from "./types.js";
+import { state } from "./state";
+import { t } from "./i18n/index";
+import type { ExplorerEntry, ExplorerResponse, Severity } from "./types";
 
 const supportedDurations = ["5m", "15m", "1h", "6h", "24h", "7d"];
 export const minTimelineBuckets = 24;

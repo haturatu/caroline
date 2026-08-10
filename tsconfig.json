@@ -8,11 +8,7 @@
 		"jsx": "react",
 		"jsxFactory": "h",
 		"jsxFragmentFactory": "Fragment",
-		"noEmitOnError": true,
-		"outDir": "static",
-		"rootDir": "src",
-		"removeComments": false,
-		"sourceMap": false
+		"noEmit": true
 	},
 	"include": ["src/**/*.ts", "src/**/*.tsx"]
 }
