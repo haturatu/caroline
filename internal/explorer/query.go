@@ -3,6 +3,7 @@ package explorer
 import (
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -41,30 +42,70 @@ func splitQueryOperator(input, operator string) []string {
 	return parts
 }
 
-func queryValue(entry Entry, field string) []string {
+type queryFieldValue struct {
+	text    string
+	numeric bool
+}
+
+func newQueryFieldValue(value any) queryFieldValue {
+	switch value := value.(type) {
+	case float64:
+		return queryFieldValue{text: fmt.Sprint(value), numeric: true}
+	case float32:
+		return queryFieldValue{text: fmt.Sprint(value), numeric: true}
+	case int:
+		return queryFieldValue{text: fmt.Sprint(value), numeric: true}
+	case int8:
+		return queryFieldValue{text: fmt.Sprint(value), numeric: true}
+	case int16:
+		return queryFieldValue{text: fmt.Sprint(value), numeric: true}
+	case int32:
+		return queryFieldValue{text: fmt.Sprint(value), numeric: true}
+	case int64:
+		return queryFieldValue{text: fmt.Sprint(value), numeric: true}
+	case uint:
+		return queryFieldValue{text: fmt.Sprint(value), numeric: true}
+	case uint8:
+		return queryFieldValue{text: fmt.Sprint(value), numeric: true}
+	case uint16:
+		return queryFieldValue{text: fmt.Sprint(value), numeric: true}
+	case uint32:
+		return queryFieldValue{text: fmt.Sprint(value), numeric: true}
+	case uint64:
+		return queryFieldValue{text: fmt.Sprint(value), numeric: true}
+	default:
+		return queryFieldValue{text: fmt.Sprint(value)}
+	}
+}
+
+func textQueryFieldValue(value string) queryFieldValue {
+	return queryFieldValue{text: value}
+}
+
+func queryValue(entry Entry, field string) []queryFieldValue {
 	field = strings.TrimSpace(field)
 	switch field {
 	case "severity":
-		return []string{entry.Severity}
+		return []queryFieldValue{textQueryFieldValue(entry.Severity)}
 	case "textPayload", "message":
-		return []string{entry.TextPayload}
+		return []queryFieldValue{textQueryFieldValue(entry.TextPayload)}
 	case "stream", "labels.stream":
-		return []string{entry.Stream}
+		return []queryFieldValue{textQueryFieldValue(entry.Stream)}
 	case "logName":
-		return []string{entry.LogName}
+		return []queryFieldValue{textQueryFieldValue(entry.LogName)}
 	case "resource.type":
-		return []string{entry.Resource.Type}
+		return []queryFieldValue{textQueryFieldValue(entry.Resource.Type)}
 	case "resource.labels.container_name", "container", "container.name":
-		return []string{entry.Resource.Labels["container_name"]}
+		return []queryFieldValue{textQueryFieldValue(entry.Resource.Labels["container_name"])}
 	case "resource.labels.container_id", "container.id":
-		return []string{entry.Resource.Labels["container_id"]}
+		return []queryFieldValue{textQueryFieldValue(entry.Resource.Labels["container_id"])}
 	case "resource.labels.image", "container.image":
-		return []string{entry.Resource.Labels["image"]}
+		return []queryFieldValue{textQueryFieldValue(entry.Resource.Labels["image"])}
 	case "timestamp":
-		return []string{entry.Timestamp.Format(time.RFC3339Nano)}
+		return []queryFieldValue{textQueryFieldValue(entry.Timestamp.Format(time.RFC3339Nano))}
 	}
 	if strings.HasPrefix(field, "labels.") {
-		return []string{entry.Labels[strings.TrimPrefix(field, "labels.")]}
+		return []queryFieldValue{textQueryFieldValue(entry.Labels[strings.TrimPrefix(field, "labels.")])}
 	}
 	if strings.HasPrefix(field, "jsonPayload.") {
 		var current any = entry.JSONPayload
@@ -78,57 +119,97 @@ func queryValue(entry Entry, field string) []string {
 		if current == nil {
 			return nil
 		}
-		return []string{fmt.Sprint(current)}
+		return []queryFieldValue{newQueryFieldValue(current)}
 	}
 	return nil
 }
 
 func SeverityRank(severity string) int {
+	rank, ok := severityRank(severity)
+	if !ok {
+		return -1
+	}
+	return rank
+}
+
+func severityRank(severity string) (int, bool) {
 	switch strings.ToUpper(severity) {
 	case "DEBUG":
-		return 100
+		return 100, true
 	case "INFO":
-		return 200
+		return 200, true
 	case "NOTICE":
-		return 300
+		return 300, true
 	case "WARNING":
-		return 400
+		return 400, true
 	case "ERROR":
-		return 500
+		return 500, true
 	case "CRITICAL":
-		return 600
+		return 600, true
 	case "ALERT":
-		return 700
+		return 700, true
 	case "EMERGENCY":
-		return 800
+		return 800, true
 	default:
-		return 0
+		return 0, false
 	}
 }
 
-func compareExplorerValue(actual, operator, expected string, field string) bool {
+func compareExplorerValue(actual queryFieldValue, operator, expected string, field string) bool {
+	actualText := actual.text
 	if field == "severity" {
-		left, right := SeverityRank(actual), SeverityRank(expected)
+		left, leftKnown := severityRank(actualText)
+		right, rightKnown := severityRank(expected)
 		switch operator {
 		case ">=":
+			if !leftKnown || !rightKnown {
+				return false
+			}
 			return left >= right
 		case "<=":
+			if !leftKnown || !rightKnown {
+				return false
+			}
 			return left <= right
 		case ">":
+			if !leftKnown || !rightKnown {
+				return false
+			}
 			return left > right
 		case "<":
+			if !leftKnown || !rightKnown {
+				return false
+			}
 			return left < right
 		case "=":
-			return strings.EqualFold(actual, expected)
+			return strings.EqualFold(actualText, expected)
 		case "!=":
-			return !strings.EqualFold(actual, expected)
+			return !strings.EqualFold(actualText, expected)
+		}
+	}
+	if operator == ">" || operator == "<" || operator == ">=" || operator == "<=" {
+		if actual.numeric || strings.HasPrefix(field, "jsonPayload.") {
+			left, leftErr := strconv.ParseFloat(actualText, 64)
+			right, rightErr := strconv.ParseFloat(expected, 64)
+			if leftErr == nil && rightErr == nil {
+				switch operator {
+				case ">":
+					return left > right
+				case "<":
+					return left < right
+				case ">=":
+					return left >= right
+				case "<=":
+					return left <= right
+				}
+			}
 		}
 	}
 	if operator == ":" {
-		return strings.Contains(strings.ToLower(actual), strings.ToLower(expected))
+		return strings.Contains(strings.ToLower(actualText), strings.ToLower(expected))
 	}
 	if field == "timestamp" {
-		left, leftErr := time.Parse(time.RFC3339Nano, actual)
+		left, leftErr := time.Parse(time.RFC3339Nano, actualText)
 		right, rightErr := time.Parse(time.RFC3339Nano, expected)
 		if leftErr == nil && rightErr == nil {
 			switch operator {
@@ -145,17 +226,17 @@ func compareExplorerValue(actual, operator, expected string, field string) bool 
 	}
 	switch operator {
 	case "=":
-		return strings.EqualFold(actual, expected)
+		return strings.EqualFold(actualText, expected)
 	case "!=":
-		return !strings.EqualFold(actual, expected)
+		return !strings.EqualFold(actualText, expected)
 	case ">":
-		return actual > expected
+		return actualText > expected
 	case "<":
-		return actual < expected
+		return actualText < expected
 	case ">=":
-		return actual >= expected
+		return actualText >= expected
 	case "<=":
-		return actual <= expected
+		return actualText <= expected
 	default:
 		return false
 	}
@@ -198,7 +279,7 @@ func matchesExplorerClause(entry Entry, clause string) bool {
 		expected = matches[5]
 	}
 	for _, actual := range queryValue(entry, matches[1]) {
-		if actual != "" && compareExplorerValue(actual, matches[2], expected, matches[1]) {
+		if actual.text != "" && compareExplorerValue(actual, matches[2], expected, matches[1]) {
 			return true
 		}
 	}

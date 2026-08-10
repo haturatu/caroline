@@ -48,11 +48,46 @@ severity = "ERROR"`, true},
 		{`jsonPayload.status = "500"`, true},
 		{`SEARCH("failed")`, true},
 		{`severity = INFO`, false},
+		{`severity >= BANANA`, false},
 		{`container = "worker"`, false},
 	}
 	for _, test := range tests {
 		if got := MatchesQuery(entry, test.query); got != test.want {
 			t.Errorf("MatchesQuery(%q) = %v, want %v", test.query, got, test.want)
 		}
+	}
+}
+
+func TestMatchesQueryUsesNumericJSONComparisons(t *testing.T) {
+	base := Entry{JSONPayload: map[string]any{"status": float64(0)}}
+	for _, test := range []struct {
+		name   string
+		status float64
+		query  string
+		want   bool
+	}{
+		{name: "greater than", status: 1000, query: "jsonPayload.status >= 500", want: true},
+		{name: "less than", status: 499, query: "jsonPayload.status >= 500", want: false},
+		{name: "short value", status: 60, query: "jsonPayload.status >= 500", want: false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			entry := base
+			entry.JSONPayload = map[string]any{"status": test.status}
+			if got := MatchesQuery(entry, test.query); got != test.want {
+				t.Fatalf("MatchesQuery(%q) with status %v = %v, want %v", test.query, test.status, got, test.want)
+			}
+		})
+	}
+
+	stringNumber := base
+	stringNumber.JSONPayload = map[string]any{"status": "1000"}
+	if !MatchesQuery(stringNumber, "jsonPayload.status >= 500") {
+		t.Fatal("numeric-looking JSON string should use numeric comparison")
+	}
+}
+
+func TestSeverityRankRejectsUnknownValues(t *testing.T) {
+	if got := SeverityRank("BANANA"); got >= 0 {
+		t.Fatalf("SeverityRank(BANANA) = %d, want a negative invalid rank", got)
 	}
 }
