@@ -245,9 +245,15 @@ go test ./...
 ├── internal/docker/     # Docker Engine client and log frame processing
 ├── internal/explorer/   # Normalization, search, Timeline, and Streaming
 ├── internal/httpserver/ # HTTP API, SSE, and static file serving
-├── index.html           # Vite application entry
-├── src/                 # TypeScript, JSX, and CSS source
-├── public/              # Optional files copied as-is by Vite
+├── web/                 # Frontend application
+│   ├── index.html       # Vite application entry
+│   ├── public/          # Optional files copied as-is by Vite
+│   └── src/
+│       ├── app/         # Bootstrap and URL state
+│       ├── features/    # Explorer, filters, timeline, logs, and streaming
+│       ├── shared/      # API, DOM, formatting, i18n, and types
+│       ├── ui/          # JSX application shell
+│       └── styles/      # CSS layers
 ├── static/              # Generated Vite serving assets from npm run build
 ├── Dockerfile
 └── docker-compose.yml

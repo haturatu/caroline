@@ -10,5 +10,5 @@
 		"jsxFragmentFactory": "Fragment",
 		"noEmit": true
 	},
-	"include": ["src/**/*.ts", "src/**/*.tsx"]
+	"include": ["web/src/**/*.ts", "web/src/**/*.tsx"]
 }

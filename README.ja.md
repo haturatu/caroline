@@ -236,9 +236,15 @@ go test ./...
 ├── internal/docker/     # Docker Engine クライアントとログフレーム処理
 ├── internal/explorer/   # 正規化、検索、Timeline、Streaming
 ├── internal/httpserver/ # HTTP API、SSE、静的ファイル配信
-├── index.html           # Vite のアプリケーションエントリ
-├── src/                 # TypeScript、JSX、CSS ソース
-├── public/              # Vite がそのままコピーする任意の静的ファイル
+├── web/                 # フロントエンドアプリケーション
+│   ├── index.html       # Vite のアプリケーションエントリ
+│   ├── public/          # Vite がそのままコピーする任意の静的ファイル
+│   └── src/
+│       ├── app/         # bootstrap と URL state
+│       ├── features/    # Explorer、filter、Timeline、log、streaming
+│       ├── shared/      # API、DOM、format、i18n、型
+│       ├── ui/          # JSX のアプリケーションシェル
+│       └── styles/      # CSS layer
 ├── static/              # Vite のビルドで生成される配信物
 ├── Dockerfile
 └── docker-compose.yml

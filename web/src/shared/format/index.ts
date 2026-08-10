@@ -1,4 +1,4 @@
-import { getLocale, t } from "./i18n/index";
+import { getLocale, t } from "../i18n/index";
 
 export function formatNumber(value: number): string {
 	return new Intl.NumberFormat(getLocale()).format(value || 0);

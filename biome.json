@@ -2,10 +2,10 @@
 	"$schema": "https://biomejs.dev/schemas/2.5.7/schema.json",
 	"files": {
 		"includes": [
-			"src/**/*.ts",
-			"src/**/*.tsx",
-			"public/**/*.html",
-			"public/**/*.css"
+			"web/**/*.ts",
+			"web/**/*.tsx",
+			"web/**/*.html",
+			"web/**/*.css"
 		]
 	},
 	"linter": {
@@ -16,7 +16,7 @@
 	},
 	"overrides": [
 		{
-			"includes": ["public/**/*.css"],
+			"includes": ["web/**/*.css"],
 			"linter": {
 				"rules": {
 					"complexity": {

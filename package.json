@@ -7,7 +7,7 @@
 		"build": "vite build",
 		"dev": "vite",
 		"preview": "vite preview",
-		"lint": "biome lint index.html src",
+		"lint": "biome lint web",
 		"typecheck": "tsc --noEmit"
 	},
 	"devDependencies": {

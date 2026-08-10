@@ -22,7 +22,12 @@ function appendChildren(parent: Node, children: Child | Child[]): void {
 			appendChildren(parent, child);
 			continue;
 		}
-		if (child === null || child === undefined || child === false || child === true)
+		if (
+			child === null ||
+			child === undefined ||
+			child === false ||
+			child === true
+		)
 			continue;
 		parent.appendChild(
 			child instanceof Node ? child : document.createTextNode(String(child)),
