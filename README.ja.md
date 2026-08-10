@@ -14,7 +14,7 @@ Caroline は、Docker Engine で現在起動しているコンテナの stdout /
 - 全フィールド検索と Caroline Query Syntax による検索
 - Timeline、Fields 集計、ログ詳細 drawer
 - SSE による新着ログの Streaming 表示
-- しきい値・時間枠・クールダウンに対応したログアラートと汎用 Webhook
+- しきい値・時間枠・クールダウンに対応したログアラートと汎用 Webhook（Discord Incoming Webhook 対応）
 - URL に検索条件を保存する Share Link
 - ダーク / ライトテーマ、モバイル用ナビゲーション
 - Docker Engine への読み取り専用アクセス
@@ -88,7 +88,7 @@ Streaming を停止すると SSE 接続を閉じます。フィルター、時�
 
 ### Alerts
 
-現在のクエリから、しきい値、時間枠、クールダウン、任意の汎用 Webhook URL を指定してアラートを作成できます。アラートエンジンは SSE と同じ共有 Docker `follow` ストリームを利用するため、複数のルールが同じコンテナを対象にしても Caroline 側の follow ストリームはコンテナごとに 1 本です。
+現在のクエリから、しきい値、時間枠、クールダウン、任意の Webhook URL を指定してアラートを作成できます。Discord Incoming Webhook（`https://discord.com/api/webhooks/...`）を指定した場合は、Discord の `embeds` 形式で通知します。その他の URL には従来の汎用 JSON payload を送信します。アラートエンジンは SSE と同じ共有 Docker `follow` ストリームを利用するため、複数のルールが同じコンテナを対象にしても Caroline 側の follow ストリームはコンテナごとに 1 本です。
 
 ルールとアラート状態はメモリ上だけに保持され、Caroline を再起動すると失われます。ログ本文や一致したエントリは保存せず、時間枠の集計に必要なタイムスタンプだけを保持します。状態が `OK` と `FIRING` の間で遷移し、Webhook を設定したルールでは発火・解消時に通知します。
 
@@ -246,6 +246,8 @@ SSE エンドポイントとアラートエンジンは `logstream.Manager` を�
 ```
 
 Webhook payload には `alert.firing` または `alert.resolved`、ルール名、現在の一致数、しきい値、時間枠、時刻、発火時のサンプルエントリが含まれます。Webhook URL 自体は API のレスポンスに含めません。
+
+Discord Incoming Webhook は Discord の [Execute Webhook](https://docs.discord.com/developers/resources/webhook#execute-webhook) 仕様に合わせ、`embeds` と `allowed_mentions: {"parse": []}` を含めて送信します。Discord 側の送信確認を得るため `wait=true` も付与します。
 
 ## 開発
 
