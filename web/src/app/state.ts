@@ -1,4 +1,4 @@
-import type { AppState } from "./types";
+import type { AppState } from "../shared/types";
 
 export const state: AppState = {
 	query: "",

@@ -37,7 +37,11 @@ export function AppShell(): Node {
 							⋮
 						</button>
 						<div className="header-menu" id="headerMenu" hidden>
-							<button className="menu-item" id="themeToggleButton" type="button">
+							<button
+								className="menu-item"
+								id="themeToggleButton"
+								type="button"
+							>
 								Use Light Theme
 							</button>
 							<button
@@ -52,10 +56,18 @@ export function AppShell(): Node {
 								<span className="menu-label" id="languageLabel">
 									Language
 								</span>
-								<button className="menu-item language-option" type="button" data-locale="en">
+								<button
+									className="menu-item language-option"
+									type="button"
+									data-locale="en"
+								>
 									English
 								</button>
-								<button className="menu-item language-option" type="button" data-locale="ja">
+								<button
+									className="menu-item language-option"
+									type="button"
+									data-locale="ja"
+								>
 									日本語
 								</button>
 								<button
@@ -72,7 +84,11 @@ export function AppShell(): Node {
 								>
 									繁體中文
 								</button>
-								<button className="menu-item language-option" type="button" data-locale="ru">
+								<button
+									className="menu-item language-option"
+									type="button"
+									data-locale="ru"
+								>
 									Русский
 								</button>
 							</div>
@@ -219,7 +235,13 @@ export function AppShell(): Node {
 				</div>
 				<div id="detailBody" />
 			</aside>
-			<div className="toast" id="toast" role="status" aria-live="polite" hidden />
+			<div
+				className="toast"
+				id="toast"
+				role="status"
+				aria-live="polite"
+				hidden
+			/>
 		</>
 	);
 }
@@ -301,14 +323,26 @@ function QueryPanel(): Node {
 						<span>To</span>
 						<input id="customToInput" type="datetime-local" step="1" />
 					</label>
-					<button className="run-button compact-run" id="applyCustomRangeButton" type="button">
+					<button
+						className="run-button compact-run"
+						id="applyCustomRangeButton"
+						type="button"
+					>
 						Apply
 					</button>
-					<button className="text-button" id="clearCustomRangeButton" type="button">
+					<button
+						className="text-button"
+						id="clearCustomRangeButton"
+						type="button"
+					>
 						Clear Interval
 					</button>
 				</div>
-				<button className="text-button show-query-button" id="showQueryButton" type="button">
+				<button
+					className="text-button show-query-button"
+					id="showQueryButton"
+					type="button"
+				>
 					Show Query
 				</button>
 				<button
@@ -325,9 +359,7 @@ function QueryPanel(): Node {
 			<div className="query-editor" id="queryEditor" hidden>
 				<div className="query-editor-heading">
 					<strong>Advanced Query</strong>
-					<span>
-						Ctrl + Enter to run
-					</span>
+					<span>Ctrl + Enter to run</span>
 				</div>
 				<label className="sr-only" htmlFor="queryInput">
 					Advanced Logging Query
@@ -360,7 +392,8 @@ function QueryPanel(): Node {
 					i
 				</span>
 				<span>
-					Basic filters update immediately. Advanced query runs with <kbd>Ctrl</kbd> + <kbd>Enter</kbd>.
+					Basic filters update immediately. Advanced query runs with{" "}
+					<kbd>Ctrl</kbd> + <kbd>Enter</kbd>.
 				</span>
 				<button
 					className="text-button"
@@ -380,7 +413,11 @@ function QueryPanel(): Node {
 				>
 					<strong id="queryHelpTitle">Caroline Query Syntax</strong>
 					<p>Inspired by Google Cloud Logging syntax. Not fully compatible.</p>
-					<pre>{'severity >= ERROR\ncontainer = "nginx"\nstream = "stderr"\nSEARCH("timeout")'}</pre>
+					<pre>
+						{
+							'severity >= ERROR\ncontainer = "nginx"\nstream = "stderr"\nSEARCH("timeout")'
+						}
+					</pre>
 					<p>
 						Combine clauses with <code>AND</code> or <code>OR</code>.
 					</p>
@@ -397,7 +434,12 @@ type FilterControlProps = {
 	className?: string;
 };
 
-function FilterControl({ children, id, label, className }: FilterControlProps): Node {
+function FilterControl({
+	children,
+	id,
+	label,
+	className,
+}: FilterControlProps): Node {
 	return (
 		<label className={`filter-control${className ? ` ${className}` : ""}`}>
 			<span>{label}</span>
@@ -413,7 +455,12 @@ function FilterControl({ children, id, label, className }: FilterControlProps): 
 
 function FieldsPanel(): Node {
 	return (
-		<aside className="fields-panel" id="fields" tabIndex={-1} aria-labelledby="fields-title">
+		<aside
+			className="fields-panel"
+			id="fields"
+			tabIndex={-1}
+			aria-labelledby="fields-title"
+		>
 			<div className="panel-heading">
 				<h2 id="fields-title">Fields</h2>
 				<button
@@ -427,7 +474,9 @@ function FieldsPanel(): Node {
 				</button>
 			</div>
 			<div id="fieldGroups">
-				<div className="panel-loading">Fields appear after you run a query.</div>
+				<div className="panel-loading">
+					Fields appear after you run a query.
+				</div>
 			</div>
 		</aside>
 	);
@@ -435,7 +484,12 @@ function FieldsPanel(): Node {
 
 function TimelinePanel(): Node {
 	return (
-		<section className="timeline-panel" id="timeline" tabIndex={-1} aria-labelledby="timeline-title">
+		<section
+			className="timeline-panel"
+			id="timeline"
+			tabIndex={-1}
+			aria-labelledby="timeline-title"
+		>
 			<div className="panel-heading">
 				<h2 id="timeline-title">Timeline</h2>
 				<div className="timeline-actions">
@@ -503,15 +557,29 @@ function ResultsPanel(): Node {
 						>
 							Partial
 						</span>
-						<span className="refresh-status" id="refreshStatus" role="status" aria-live="polite" />
+						<span
+							className="refresh-status"
+							id="refreshStatus"
+							role="status"
+							aria-live="polite"
+						/>
 					</div>
 					<p id="resultsDescription" />
 				</div>
 				<div className="results-actions">
-					<button className="text-button" id="wrapButton" type="button" aria-pressed="false">
+					<button
+						className="text-button"
+						id="wrapButton"
+						type="button"
+						aria-pressed="false"
+					>
 						Wrap Lines
 					</button>
-					<select className="sort-select" id="sortFilter" aria-label="Sort Results">
+					<select
+						className="sort-select"
+						id="sortFilter"
+						aria-label="Sort Results"
+					>
 						<option value="desc">Newest First</option>
 						<option value="asc">Oldest First</option>
 					</select>
@@ -537,7 +605,12 @@ function ResultsPanel(): Node {
 			</div>
 			<div className="results-footer">
 				<span id="resultsFooter" />
-				<button className="text-button" id="nextPageButton" type="button" hidden>
+				<button
+					className="text-button"
+					id="nextPageButton"
+					type="button"
+					hidden
+				>
 					Load More
 				</button>
 			</div>

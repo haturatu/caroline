@@ -18,5 +18,8 @@ const htmlEscapeMap: Record<string, string> = {
 
 /** Escape API-provided values before interpolating them into HTML strings. */
 export function escapeHTML(value: unknown): string {
-	return String(value ?? "").replace(/[&<>'"]/g, (character) => htmlEscapeMap[character]);
+	return String(value ?? "").replace(
+		/[&<>'"]/g,
+		(character) => htmlEscapeMap[character],
+	);
 }

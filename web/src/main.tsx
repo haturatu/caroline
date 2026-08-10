@@ -7,4 +7,4 @@ const root = document.getElementById("app");
 if (!root) throw new Error("Missing application mount point");
 
 root.replaceChildren(<AppShell />);
-void import("./app");
+void import("./app/bootstrap");

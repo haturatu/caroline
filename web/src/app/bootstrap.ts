@@ -1,41 +1,34 @@
-import {
-	fetchExplorer,
-	fetchStatus,
-	hydrateURL,
-	maxTimelineBuckets,
-	minTimelineBuckets,
-	openTail,
-	setTimelineBuckets,
-	syncURL,
-} from "./api";
-import { $$, $, escapeHTML } from "./dom";
-import { copyText } from "./clipboard";
-import { errorText } from "./format";
+import { fetchExplorer, fetchStatus } from "../features/explorer/api";
+import { hydrateURL, syncURL } from "./url-state";
+import { closeTail, startTail } from "../features/streaming/controller";
+import { setupTimelineResolution } from "../features/timeline/resolution";
+import { $$, $, escapeHTML } from "../shared/dom/selectors";
+import { copyText } from "../shared/dom/clipboard";
+import { errorText } from "../shared/format";
 import {
 	getLocale,
 	isSupportedLocale,
 	setLocale,
 	t,
 	tp,
-} from "./i18n/index";
+} from "../shared/i18n/index";
 import {
 	closeQuerySuggestions,
 	handleQueryKeydown,
 	renderQuerySuggestions,
-} from "./query-suggestions";
+} from "../features/query-editor/suggestions";
 import {
 	renderAll,
-	renderDetail,
-	renderEntries,
-	renderFilters,
 	renderLoading,
 	renderResultsMeta,
-	setRenderActions,
-} from "./render";
+} from "../features/explorer/render";
+import { setRenderActions } from "../features/explorer/actions";
+import { renderFilters } from "../features/filters/render";
+import { renderEntries } from "../features/logs/render";
+import { renderDetail } from "../features/logs/detail";
 import { state } from "./state";
-import type { ExplorerEntry, Theme } from "./types";
+import type { Theme } from "../shared/types";
 
-let tailSource: EventSource | null = null;
 let statusTimer: number | null = null;
 let searchTimer: number | null = null;
 let reloadRequested = false;
@@ -45,43 +38,8 @@ let fieldsReturnFocus: HTMLElement | null = null;
 let errorContextFocused = false;
 let initialLoadingTimer: number | null = null;
 let initialLoadingVisibleAt = 0;
-let currentTimelineBucketCount = 0;
-let timelineResizeTimer: number | null = null;
-
 const loadingShowDelay = 200;
 const loadingMinimumDuration = 350;
-
-function timelineBucketCount(width: number): number {
-	return Math.min(
-		maxTimelineBuckets,
-		Math.max(minTimelineBuckets, Math.round(width / 28)),
-	);
-}
-
-function setupTimelineResolution(): void {
-	const chart = $("#timelineChart");
-	const update = (width: number): void => {
-		const next = timelineBucketCount(width || window.innerWidth);
-		if (next === currentTimelineBucketCount) return;
-		currentTimelineBucketCount = next;
-		setTimelineBuckets(next);
-		if (!state.response) return;
-		if (timelineResizeTimer !== null) window.clearTimeout(timelineResizeTimer);
-		timelineResizeTimer = window.setTimeout(() => {
-			timelineResizeTimer = null;
-			state.pageToken = "";
-			syncURL();
-			void loadExplorer();
-		}, 180);
-	};
-
-	update(chart.getBoundingClientRect().width);
-	if (typeof ResizeObserver === "undefined") return;
-	const observer = new ResizeObserver(([entry]) => {
-		if (entry) update(entry.contentRect.width);
-	});
-	observer.observe(chart);
-}
 
 function renderErrorBanner(): void {
 	const banner = $("#errorBanner");
@@ -338,72 +296,6 @@ async function loadStatus(): Promise<void> {
 	}
 }
 
-function closeTail(): void {
-	if (tailSource) tailSource.close();
-	tailSource = null;
-	state.tailConnected = false;
-	state.tailMessage = "";
-}
-
-function appendTailEntry(entry: ExplorerEntry): void {
-	if (state.entries.some((item) => item.insertId === entry.insertId)) return;
-	const entries = [...state.entries, entry].sort((left, right) => {
-		const timestampOrder =
-			Date.parse(left.timestamp) - Date.parse(right.timestamp);
-		if (timestampOrder !== 0)
-			return state.sort === "asc" ? timestampOrder : -timestampOrder;
-		if (state.sort === "asc")
-			return left.insertId.localeCompare(right.insertId);
-		return right.insertId.localeCompare(left.insertId);
-	});
-	const entryLimit = state.response?.entryLimit || 50000;
-	state.entries =
-		entries.length <= entryLimit
-			? entries
-			: state.sort === "asc"
-				? entries.slice(entries.length - entryLimit)
-				: entries.slice(0, entryLimit);
-	if (state.response) {
-		state.response = {
-			...state.response,
-			total: state.response.total + 1,
-		};
-	}
-	state.lastUpdated = new Date().toISOString();
-	renderEntries();
-	renderDetail();
-	renderResultsMeta();
-}
-
-function startTail(since: string): void {
-	if (!state.live) return;
-	closeTail();
-	state.tailMessage = t("results.connecting");
-	tailSource = openTail(since, {
-		onOpen: () => {
-			state.tailConnected = true;
-			state.tailMessage = t("results.liveConnected");
-			renderResultsMeta();
-		},
-		onEntry: appendTailEntry,
-		onWarning: (message) => {
-			state.tailMessage = message;
-			renderResultsMeta();
-		},
-		onServerError: (message) => {
-			state.tailMessage = t("errors.liveError");
-			showError(message, "explorer");
-			renderResultsMeta();
-		},
-		onDisconnect: () => {
-			state.tailConnected = false;
-			state.tailMessage = t("errors.reconnecting");
-			renderResultsMeta();
-		},
-	});
-	renderResultsMeta();
-}
-
 async function loadExplorer(append = false): Promise<void> {
 	if (!append) closeTail();
 	if (state.loading) {
@@ -453,7 +345,10 @@ async function loadExplorer(append = false): Promise<void> {
 		state.errorDetails = response.errors || [];
 		if (state.errorDetails.length)
 			showError(t("errors.someContainers"), "explorer");
-		if (!append) startTail(response.generatedAt);
+		if (!append)
+			startTail(response.generatedAt, (message) =>
+				showError(message, "explorer"),
+			);
 	} catch (error) {
 		await settleInitialLoading();
 		if (!append && !state.response) {
@@ -478,7 +373,10 @@ function setLive(value: boolean): void {
 	if (statusTimer === null) {
 		statusTimer = window.setInterval(() => void loadStatus(), 30000);
 	}
-	if (value && state.response) startTail(state.response.generatedAt);
+	if (value && state.response)
+		startTail(state.response.generatedAt, (message) =>
+			showError(message, "explorer"),
+		);
 	if (!value) closeTail();
 	renderAll();
 }
@@ -970,7 +868,12 @@ setupEvents();
 setLocale(getLocale());
 setupLocale();
 applyTheme(loadSavedTheme());
-setupTimelineResolution();
+setupTimelineResolution(() => {
+	if (!state.response) return;
+	state.pageToken = "";
+	syncURL();
+	void loadExplorer();
+});
 syncMobileFieldsOverlay();
 setLive(state.live);
 void loadStatus();

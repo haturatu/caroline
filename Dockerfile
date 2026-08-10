@@ -4,9 +4,8 @@ WORKDIR /web
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY tsconfig.json ./
-COPY index.html ./
 COPY vite.config.ts ./
-COPY src ./src
+COPY web ./web
 RUN npm run build
 
 FROM golang:1.26-alpine AS build
