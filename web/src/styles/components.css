@@ -1025,7 +1025,7 @@
 	position: fixed;
 	z-index: 40;
 	inset-block: 52px 0;
-	inset-inline-end: 0;
+	inset-inline: auto 0;
 	display: none;
 	inline-size: min(430px, 100dvw);
 	block-size: auto;
