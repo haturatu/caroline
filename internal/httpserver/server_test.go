@@ -219,6 +219,53 @@ func TestTailSupportsHead(t *testing.T) {
 	}
 }
 
+type canceledTailSource struct{}
+
+func (canceledTailSource) ListRunning(ctx context.Context) ([]docker.Container, error) {
+	return nil, ctx.Err()
+}
+
+func (canceledTailSource) FollowLogs(
+	context.Context,
+	string,
+	time.Time,
+	func(docker.Frame) error,
+) error {
+	return context.Canceled
+}
+
+func TestHandleTailDoesNotReturn503ForCanceledClient(t *testing.T) {
+	streamManager := logstream.NewManager(canceledTailSource{})
+	defer streamManager.Close()
+	server := New(nil, nil, streamManager, nil)
+
+	requestContext, cancel := context.WithCancel(context.Background())
+	cancel()
+	request := httptest.NewRequest(http.MethodGet, "/api/tail", nil).WithContext(requestContext)
+	recorder := httptest.NewRecorder()
+
+	server.handleTail(recorder, request)
+
+	if recorder.Code == http.StatusServiceUnavailable {
+		t.Fatalf("canceled client returned 503: %s", recorder.Body.String())
+	}
+	if recorder.Body.Len() != 0 {
+		t.Fatalf("canceled client wrote a response: %s", recorder.Body.String())
+	}
+}
+
+func TestHandleTailReturns503WhenStreamingIsUnavailable(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	(&Server{}).handleTail(
+		recorder,
+		httptest.NewRequest(http.MethodGet, "/api/tail", nil),
+	)
+
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("unavailable streaming returned status %d, want 503", recorder.Code)
+	}
+}
+
 func TestHandleTailStreamsFollowLogs(t *testing.T) {
 	container := docker.Container{ID: "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789", Names: []string{"/api"}}
 	var followValue string

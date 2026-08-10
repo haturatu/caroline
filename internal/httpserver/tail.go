@@ -3,6 +3,7 @@ package httpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -44,6 +45,9 @@ func (s *Server) handleTail(w http.ResponseWriter, r *http.Request) {
 		explorer.MaxTailStreams,
 	)
 	if err != nil {
+		if errors.Is(r.Context().Err(), context.Canceled) {
+			return
+		}
 		writeError(w, http.StatusServiceUnavailable, dockerUnavailableMessage(err))
 		return
 	}

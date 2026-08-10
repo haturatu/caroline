@@ -11,17 +11,26 @@ function timelineBucketCount(width: number): number {
 	);
 }
 
-export function setupTimelineResolution(onResolutionChange: () => void): void {
+export function setupTimelineResolution(
+	onResolutionChange: () => void,
+): () => void {
 	const chart = document.querySelector<HTMLElement>("#timelineChart");
-	if (!chart) return;
+	if (!chart) return () => {};
 
 	let currentBucketCount = 0;
 	let resizeTimer: number | null = null;
+	let initialized = false;
+	let ready = false;
 	const update = (width: number): void => {
 		const nextBucketCount = timelineBucketCount(width || window.innerWidth);
 		if (nextBucketCount === currentBucketCount) return;
 		currentBucketCount = nextBucketCount;
 		setTimelineBuckets(nextBucketCount);
+		if (!initialized) {
+			initialized = true;
+			return;
+		}
+		if (!ready) return;
 		if (resizeTimer !== null) window.clearTimeout(resizeTimer);
 		resizeTimer = window.setTimeout(() => {
 			resizeTimer = null;
@@ -30,9 +39,14 @@ export function setupTimelineResolution(onResolutionChange: () => void): void {
 	};
 
 	update(chart.getBoundingClientRect().width);
-	if (typeof ResizeObserver === "undefined") return;
+	if (typeof ResizeObserver === "undefined") return () => {
+		ready = true;
+	};
 	const observer = new ResizeObserver(([entry]) => {
 		if (entry) update(entry.contentRect.width);
 	});
 	observer.observe(chart);
+	return () => {
+		ready = true;
+	};
 }
