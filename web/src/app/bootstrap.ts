@@ -172,7 +172,7 @@ function closeHeaderMenus(returnFocus = false): void {
 	const menu = $("#headerMenu");
 	const api = getPopoverAPI(menu);
 	const wasOpen = isPopoverOpen(menu);
-	if (wasOpen && api.hidePopover) api.hidePopover();
+	if (wasOpen && api.hidePopover) api.hidePopover.call(menu);
 	else if (!api.showPopover) {
 		menu.setAttribute("hidden", "");
 		menu.classList.remove("popover-fallback-open");
@@ -185,7 +185,7 @@ function closeHeaderMenus(returnFocus = false): void {
 function closeQueryHelpPopover(): void {
 	const popover = $("#queryHelpPopover");
 	const api = getPopoverAPI(popover);
-	if (isPopoverOpen(popover) && api.hidePopover) api.hidePopover();
+	if (isPopoverOpen(popover) && api.hidePopover) api.hidePopover.call(popover);
 	else if (!api.showPopover) {
 		popover.setAttribute("hidden", "");
 		popover.classList.remove("popover-fallback-open");
