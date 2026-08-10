@@ -14,7 +14,8 @@ export async function copyText(value: string): Promise<boolean> {
 	textarea.style.position = "fixed";
 	textarea.style.insetInlineStart = "-9999px";
 	textarea.style.opacity = "0";
-	document.body.append(textarea);
+	const openDialog = document.querySelector<HTMLDialogElement>("dialog[open]");
+	(openDialog ?? document.body).append(textarea);
 	textarea.focus();
 	textarea.select();
 	textarea.setSelectionRange(0, value.length);
