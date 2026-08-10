@@ -310,10 +310,6 @@ func truncateDiscordText(value string, limit int) string {
 	return string(runes[:limit-1]) + "…"
 }
 
-func isDiscordWebhookURL(raw string) bool {
-	return detectWebhookProvider(raw) == providerDiscord
-}
-
 func detectWebhookProvider(raw string) webhookProvider {
 	parsed, err := url.Parse(raw)
 	if err != nil || !strings.EqualFold(parsed.Scheme, "https") {

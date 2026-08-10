@@ -220,25 +220,6 @@ func TestWebhookNotifyUsesTeamsAdaptiveCard(t *testing.T) {
 	}
 }
 
-func TestIsDiscordWebhookURL(t *testing.T) {
-	for _, test := range []struct {
-		name string
-		url  string
-		want bool
-	}{
-		{name: "discord", url: "https://discord.com/api/webhooks/123/token", want: true},
-		{name: "legacy discord host", url: "https://discordapp.com/api/webhooks/123/token", want: true},
-		{name: "generic", url: "https://example.test/api/webhooks/123/token", want: false},
-		{name: "insecure", url: "http://discord.com/api/webhooks/123/token", want: false},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			if got := isDiscordWebhookURL(test.url); got != test.want {
-				t.Fatalf("isDiscordWebhookURL(%q) = %t, want %t", test.url, got, test.want)
-			}
-		})
-	}
-}
-
 func TestDetectWebhookProvider(t *testing.T) {
 	for _, test := range []struct {
 		name     string
