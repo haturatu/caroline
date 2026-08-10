@@ -96,7 +96,7 @@ Stopping Streaming closes the SSE connection. Changing filters, the time range, 
 
 ### Timeline, Fields, and Logs
 
-- **Timeline**: Splits the result range into 24 buckets and displays them by severity. Click a bar or drag across a range to change the time range. Zoom controls are also available.
+- **Timeline**: Splits the result range into 24–96 responsive buckets based on the timeline width and displays them by severity. Click a bar or drag across a range to change the time range. Zoom controls are also available.
 - **Fields**: Aggregates System Metadata and Frequent Fields in the result set. Clicking a field value adds it to the Advanced Query.
 - **Logs**: Supports newest/oldest sorting, Wrap Lines, and Load More.
 - Selecting a row opens a detail drawer with the Summary, Payload, metadata, and copyable Entry JSON.
@@ -210,7 +210,7 @@ Example:
 curl 'http://localhost:8080/api/explorer?duration=15m&limit=100&q=severity%20%3E%3D%20ERROR&sort=desc'
 ~~~
 
-In addition to `entries`, the response includes `containers`, a 24-bucket `timeline`, `fields`, `total`, `generatedAt`, `from`, `to`, `approximate`, `logTail`, `entryLimit`, and `truncated`.
+In addition to `entries`, the response includes `containers`, a responsive 24–96-bucket `timeline`, `fields`, `total`, `generatedAt`, `from`, `to`, `approximate`, `logTail`, `entryLimit`, and `truncated`.
 
 ### `GET /api/tail`
 
@@ -245,9 +245,10 @@ go test ./...
 ├── internal/docker/     # Docker Engine client and log frame processing
 ├── internal/explorer/   # Normalization, search, Timeline, and Streaming
 ├── internal/httpserver/ # HTTP API, SSE, and static file serving
-├── src/                 # TypeScript source
-├── public/              # HTML / CSS
-├── static/              # Generated serving assets from npm run build
+├── index.html           # Vite application entry
+├── src/                 # TypeScript, JSX, and CSS source
+├── public/              # Optional files copied as-is by Vite
+├── static/              # Generated Vite serving assets from npm run build
 ├── Dockerfile
 └── docker-compose.yml
 ~~~
