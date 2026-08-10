@@ -156,10 +156,14 @@ func (m *Manager) Subscribe(
 	m.subscribers[owner] = struct{}{}
 	for _, container := range streamedContainers {
 		current, created := m.getOrCreateStreamLocked(container, since)
+		shouldStart := created
 		current.mu.Lock()
 		current.subs[owner] = struct{}{}
+		if !current.started {
+			shouldStart = true
+		}
 		current.mu.Unlock()
-		if created {
+		if shouldStart {
 			newStreams = append(newStreams, current)
 		}
 	}
