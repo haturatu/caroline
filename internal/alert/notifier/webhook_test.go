@@ -84,6 +84,46 @@ func TestWebhookNotifyUsesDiscordPayload(t *testing.T) {
 	}
 }
 
+func TestWebhookNotifyUsesSlackPayload(t *testing.T) {
+	var request *http.Request
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		request = r
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Body:       io.NopCloser(strings.NewReader(`{}`)),
+			Header:     make(http.Header),
+			Request:    r,
+		}, nil
+	})}
+
+	err := (Webhook{Client: client}).Notify(context.Background(), alert.Rule{
+		WebhookURL: "https://hooks.slack.com/services/T000/B000/secret",
+	}, testNotification())
+	if err != nil {
+		t.Fatalf("Notify returned error: %v", err)
+	}
+	if request == nil {
+		t.Fatal("Slack request was not sent")
+	}
+	if got := request.Header.Get("Content-Type"); got != "application/json" {
+		t.Fatalf("Slack request Content-Type = %q", got)
+	}
+	var payload slackPayload
+	if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode Slack payload: %v", err)
+	}
+	if !strings.HasPrefix(payload.Text, "🔴 FIRING · API errors") {
+		t.Fatalf("unexpected Slack fallback text: %q", payload.Text)
+	}
+	if len(payload.Blocks) < 2 || payload.Blocks[0].Type != "header" || payload.Blocks[1].Type != "section" {
+		t.Fatalf("unexpected Slack blocks: %#v", payload.Blocks)
+	}
+	if payload.Blocks[0].Text == nil || payload.Blocks[0].Text.Text != "🔴 FIRING · API errors" {
+		t.Fatalf("unexpected Slack header: %#v", payload.Blocks[0])
+	}
+}
+
 func TestIsDiscordWebhookURL(t *testing.T) {
 	for _, test := range []struct {
 		name string
@@ -110,6 +150,7 @@ func TestDetectWebhookProvider(t *testing.T) {
 		provider webhookProvider
 	}{
 		{name: "discord", url: "https://discord.com/api/webhooks/123/token", provider: providerDiscord},
+		{name: "slack", url: "https://hooks.slack.com/services/T000/B000/token", provider: providerSlack},
 		{name: "generic", url: "https://alerts.example.test/caroline", provider: providerGeneric},
 		{name: "insecure discord", url: "http://discord.com/api/webhooks/123/token", provider: providerGeneric},
 	} {

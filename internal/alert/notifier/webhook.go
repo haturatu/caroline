@@ -25,6 +25,7 @@ type webhookProvider string
 const (
 	providerGeneric webhookProvider = "generic"
 	providerDiscord webhookProvider = "discord"
+	providerSlack   webhookProvider = "slack"
 )
 
 func (w Webhook) Notify(ctx context.Context, rule alert.Rule, notification alert.Notification) error {
@@ -43,6 +44,7 @@ func (w Webhook) Notify(ctx context.Context, rule alert.Rule, notification alert
 	endpoint := rule.WebhookURL
 	var body []byte
 	var err error
+	headers := map[string]string{"Content-Type": "application/json"}
 	switch detectWebhookProvider(endpoint) {
 	case providerDiscord:
 		endpoint, err = discordEndpoint(endpoint)
@@ -50,6 +52,8 @@ func (w Webhook) Notify(ctx context.Context, rule alert.Rule, notification alert
 			return err
 		}
 		body, err = json.Marshal(discordPayload(notification))
+	case providerSlack:
+		body, err = json.Marshal(buildSlackPayload(notification))
 	case providerGeneric:
 		body, err = json.Marshal(notification)
 	}
@@ -60,7 +64,9 @@ func (w Webhook) Notify(ctx context.Context, rule alert.Rule, notification alert
 	if err != nil {
 		return err
 	}
-	request.Header.Set("Content-Type", "application/json")
+	for name, value := range headers {
+		request.Header.Set(name, value)
+	}
 	request.Header.Set("User-Agent", "Caroline-Alert/1.0")
 	response, err := client.Do(request)
 	if err != nil {
@@ -306,12 +312,17 @@ func detectWebhookProvider(raw string) webhookProvider {
 	if err != nil || !strings.EqualFold(parsed.Scheme, "https") {
 		return providerGeneric
 	}
-	switch strings.ToLower(parsed.Hostname()) {
+	host := strings.ToLower(parsed.Hostname())
+	path := strings.ToLower(parsed.Path)
+	switch host {
 	case "discord.com", "discordapp.com", "canary.discord.com", "ptb.discord.com":
-		if strings.HasPrefix(parsed.Path, "/api/webhooks/") {
+		if strings.HasPrefix(path, "/api/webhooks/") {
 			return providerDiscord
 		}
-	default:
+	case "hooks.slack.com", "hooks.slack-gov.com":
+		if strings.HasPrefix(path, "/services/") {
+			return providerSlack
+		}
 	}
 	return providerGeneric
 }
