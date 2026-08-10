@@ -28,7 +28,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/explorer", getOnly(s.handleExplorer))
 	mux.HandleFunc("/api/tail", getOnly(s.handleTail))
 	mux.Handle("/", http.FileServer(http.Dir("static")))
-	return loggingMiddleware(mux)
+	return securityHeaders(loggingMiddleware(mux))
 }
 
 func (s *Server) Run(port string) error {

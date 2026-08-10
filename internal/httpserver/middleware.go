@@ -12,6 +12,8 @@ type statusResponseWriter struct {
 	statusCode int
 }
 
+const contentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+
 func (w *statusResponseWriter) Unwrap() http.ResponseWriter {
 	return w.ResponseWriter
 }
@@ -55,6 +57,18 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		if strings.HasPrefix(r.URL.Path, "/api/") && response.status() >= http.StatusMultipleChoices {
 			log.Printf("%s %s %d %s", r.Method, r.URL.RequestURI(), response.status(), time.Since(started).Round(time.Millisecond))
 		}
+	})
+}
+
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		header := w.Header()
+		header.Set("Content-Security-Policy", contentSecurityPolicy)
+		header.Set("X-Content-Type-Options", "nosniff")
+		header.Set("X-Frame-Options", "DENY")
+		header.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		header.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		next.ServeHTTP(w, r)
 	})
 }
 
