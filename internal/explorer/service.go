@@ -109,16 +109,6 @@ func (s *Service) Search(ctx context.Context, request SearchRequest) (Response, 
 		}
 		containerInfos[result.container.ID] = info
 
-		if len(response.Entries) >= MaxEntries {
-			response.Truncated = true
-			continue
-		}
-		remaining := MaxEntries - len(response.Entries)
-		if len(result.entries) > remaining {
-			response.Entries = append(response.Entries, result.entries[:remaining]...)
-			response.Truncated = true
-			continue
-		}
 		response.Entries = append(response.Entries, result.entries...)
 	}
 
@@ -127,6 +117,10 @@ func (s *Service) Search(ctx context.Context, request SearchRequest) (Response, 
 	}
 
 	sortEntries(response.Entries, request.Sort)
+	if len(response.Entries) > MaxEntries {
+		response.Entries = response.Entries[:MaxEntries]
+		response.Truncated = true
+	}
 	sort.Slice(response.Containers, func(i, j int) bool {
 		return response.Containers[i].Name < response.Containers[j].Name
 	})
