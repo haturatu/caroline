@@ -53,36 +53,38 @@
 		transition: transform 0.18s ease;
 	}
 
-	.nav-expanded .side-nav {
-		inline-size: 260px;
-		min-inline-size: 260px;
-		flex-basis: auto;
-		align-items: stretch;
-		transform: translateX(0);
-	}
+	.nav-expanded {
+		.side-nav {
+			inline-size: 260px;
+			min-inline-size: 260px;
+			flex-basis: auto;
+			align-items: stretch;
+			transform: translateX(0);
+		}
 
-	.nav-expanded .side-nav-link {
-		justify-content: flex-start;
-		inline-size: 100%;
-		padding-inline: 12px;
-		gap: 12px;
-	}
+		.side-nav-link {
+			justify-content: flex-start;
+			inline-size: 100%;
+			padding-inline: 12px;
+			gap: 12px;
+		}
 
-	.nav-expanded .side-nav-link span,
-	.nav-expanded .side-nav-footer > span:nth-child(2) {
-		position: static;
-		inline-size: auto;
-		block-size: auto;
-		overflow: visible;
-		clip: auto;
-		white-space: normal;
-	}
+		.side-nav-link span,
+		.side-nav-footer > span:nth-child(2) {
+			position: static;
+			inline-size: auto;
+			block-size: auto;
+			overflow: visible;
+			clip: auto;
+			white-space: normal;
+		}
 
-	.nav-expanded .side-nav-footer {
-		justify-content: flex-start;
-		inline-size: 100%;
-		padding-block: 8px;
-		padding-inline: 12px;
+		.side-nav-footer {
+			justify-content: flex-start;
+			inline-size: 100%;
+			padding-block: 8px;
+			padding-inline: 12px;
+		}
 	}
 
 	.nav-expanded .mobile-nav-backdrop,
@@ -112,42 +114,18 @@
 		justify-content: flex-end;
 	}
 
-	.query-panel-header,
 	.results-header {
 		align-items: flex-start;
 		flex-direction: column;
 	}
 
-	.query-panel-actions,
 	.results-actions {
 		inline-size: 100%;
 		justify-content: flex-end;
 	}
 
-	.query-search-row {
-		align-items: stretch;
-		flex-direction: column;
-	}
-
 	.search-all-fields {
 		inline-size: 100%;
-		min-block-size: 44px;
-	}
-
-	.refine-row {
-		align-items: stretch;
-	}
-
-	.custom-range-editor {
-		inline-size: 100%;
-	}
-
-	.custom-range-editor label {
-		flex: 1;
-		min-inline-size: 145px;
-	}
-
-	.custom-range-editor input {
 		min-block-size: 44px;
 	}
 
@@ -170,15 +148,6 @@
 	.field-row,
 	.field-value {
 		min-block-size: 44px;
-	}
-
-	.filter-control {
-		min-inline-size: calc(50% - 5px);
-		flex: 1;
-	}
-
-	.show-query-button {
-		margin-inline-start: 0;
 	}
 
 	.explorer-grid,
@@ -338,6 +307,80 @@
 		inset-block-end: 0;
 	}
 
+	.results-header {
+		align-items: flex-start;
+		flex-direction: column;
+	}
+
+	.results-actions {
+		inline-size: 100%;
+		justify-content: flex-end;
+	}
+
+	.results-footer {
+		padding-inline-end: max(12px, env(safe-area-inset-right));
+		padding-inline-start: max(12px, env(safe-area-inset-left));
+	}
+
+	.results-footer > span {
+		max-inline-size: 70%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+}
+
+@media (max-width: 360px) {
+	.error-banner {
+		top: 64px;
+		align-items: flex-start;
+	}
+}
+
+@container query-panel (inline-size <= 760px) {
+	.query-panel-header {
+		align-items: flex-start;
+		flex-direction: column;
+	}
+
+	.query-panel-actions {
+		inline-size: 100%;
+		justify-content: flex-end;
+	}
+
+	.query-search-row {
+		align-items: stretch;
+		flex-direction: column;
+	}
+
+	.refine-row {
+		align-items: stretch;
+	}
+
+	.custom-range-editor {
+		inline-size: 100%;
+	}
+
+	.custom-range-editor label {
+		flex: 1;
+		min-inline-size: 145px;
+	}
+
+	.custom-range-editor input {
+		min-block-size: 44px;
+	}
+
+	.filter-control {
+		min-inline-size: calc(50% - 5px);
+		flex: 1;
+	}
+
+	.show-query-button {
+		margin-inline-start: 0;
+	}
+}
+
+@container query-panel (inline-size <= 500px) {
 	.query-panel-header {
 		align-items: center;
 		flex-direction: row;
@@ -373,31 +416,9 @@
 	.custom-range-editor button {
 		inline-size: 100%;
 	}
-
-	.results-header {
-		align-items: flex-start;
-		flex-direction: column;
-	}
-
-	.results-actions {
-		inline-size: 100%;
-		justify-content: flex-end;
-	}
-
-	.results-footer {
-		padding-inline-end: max(12px, env(safe-area-inset-right));
-		padding-inline-start: max(12px, env(safe-area-inset-left));
-	}
-
-	.results-footer > span {
-		max-inline-size: 70%;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-	}
 }
 
-@media (max-width: 360px) {
+@container query-panel (inline-size <= 360px) {
 	.query-panel-header {
 		align-items: stretch;
 		flex-direction: column;
@@ -412,10 +433,5 @@
 	.query-panel-actions .text-button,
 	.query-panel-actions .run-button {
 		white-space: nowrap;
-	}
-
-	.error-banner {
-		top: 64px;
-		align-items: flex-start;
 	}
 }

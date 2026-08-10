@@ -263,18 +263,18 @@
 	overflow: hidden;
 }
 
-.timeline-axis span {
+.timeline-axis time {
 	min-width: 0;
 	flex: 1;
 	text-align: center;
 	white-space: nowrap;
 }
 
-.timeline-axis span:first-child {
+.timeline-axis time:first-child {
 	text-align: left;
 }
 
-.timeline-axis span:last-child {
+.timeline-axis time:last-child {
 	text-align: right;
 }
 
