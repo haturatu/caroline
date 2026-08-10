@@ -208,7 +208,7 @@ const bindings: Binding[] = [
 		key: "query.querySyntaxDescription",
 	},
 	{ selector: "#queryHelpPopover p:last-of-type", key: "query.combineClauses" },
-	{ selector: "#errorDetailsToggle", key: "common.viewDetails" },
+	{ selector: "#errorDetails summary", key: "common.viewDetails" },
 	{ selector: "#errorDismiss", key: "common.dismiss" },
 	{ selector: "#fields .panel-heading h2", key: "fields.title" },
 	{ selector: "#timeline .panel-heading h2", key: "timeline.title" },

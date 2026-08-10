@@ -53,16 +53,17 @@ function renderErrorBanner(): void {
 	$("#errorMessage").textContent = state.errorDetails.length
 		? tp("errors.containerRead", state.errorDetails.length)
 		: messages.join(" · ");
-	const detailsToggle = $("#errorDetailsToggle");
-	const details = $("#errorDetails");
+	const details = $("#errorDetails") as HTMLDetailsElement;
+	const detailsList = $("#errorDetailsList");
 	if (state.errorDetails.length) {
-		detailsToggle.removeAttribute("hidden");
-		details.innerHTML = `<ul>${state.errorDetails.map((detail) => `<li>${escapeHTML(detail)}</li>`).join("")}</ul>`;
+		details.removeAttribute("hidden");
+		detailsList.innerHTML = state.errorDetails
+			.map((detail) => `<li>${escapeHTML(detail)}</li>`)
+			.join("");
 	} else {
-		detailsToggle.setAttribute("hidden", "");
-		detailsToggle.setAttribute("aria-expanded", "false");
+		details.open = false;
 		details.setAttribute("hidden", "");
-		details.innerHTML = "";
+		detailsList.innerHTML = "";
 	}
 	banner.removeAttribute("hidden");
 	if (
@@ -121,24 +122,75 @@ function loadSavedTheme(): Theme {
 	}
 }
 
+type PopoverAPI = {
+	showPopover: (() => void) | undefined;
+	hidePopover: (() => void) | undefined;
+};
+
+function getPopoverAPI(element: HTMLElement): PopoverAPI {
+	return element as unknown as PopoverAPI;
+}
+
+function isPopoverOpen(popover: HTMLElement): boolean {
+	const api = getPopoverAPI(popover);
+	if (popover.hasAttribute("hidden")) return false;
+	if (!api.showPopover) return true;
+	try {
+		return popover.matches(":popover-open");
+	} catch {
+		return false;
+	}
+}
+
+function setupPopover(popoverId: string, triggerId: string): void {
+	const popover = $(popoverId);
+	const api = getPopoverAPI(popover);
+	const trigger = $(triggerId);
+	if (api.showPopover) {
+		popover.addEventListener("toggle", (event) => {
+			const newState = (event as Event & { newState?: string }).newState;
+			trigger.setAttribute("aria-expanded", String(newState === "open"));
+			if (newState === "open")
+				requestAnimationFrame(() =>
+					popover.querySelector<HTMLButtonElement>("button")?.focus(),
+				);
+		});
+		return;
+	}
+
+	popover.setAttribute("hidden", "");
+	trigger.addEventListener("click", () => {
+		const open = popover.hasAttribute("hidden");
+		popover.toggleAttribute("hidden", !open);
+		popover.classList.toggle("popover-fallback-open", open);
+		trigger.setAttribute("aria-expanded", String(open));
+		if (open) popover.querySelector<HTMLButtonElement>("button")?.focus();
+	});
+}
+
 function closeHeaderMenus(returnFocus = false): void {
-	const wasOpen = !$("#headerMenu").hasAttribute("hidden");
-	$("#headerMenu").setAttribute("hidden", "");
+	const menu = $("#headerMenu");
+	const api = getPopoverAPI(menu);
+	const wasOpen = isPopoverOpen(menu);
+	if (wasOpen && api.hidePopover) api.hidePopover();
+	else if (!api.showPopover) {
+		menu.setAttribute("hidden", "");
+		menu.classList.remove("popover-fallback-open");
+	}
 	$("#headerMenuButton").setAttribute("aria-expanded", "false");
 	if (returnFocus && wasOpen)
 		$("#headerMenuButton").focus({ preventScroll: true });
 }
 
-function toggleMenu(menu: HTMLElement, trigger: HTMLElement): void {
-	const willOpen = menu.hasAttribute("hidden");
-	closeHeaderMenus();
-	if (willOpen) {
-		menu.removeAttribute("hidden");
-		trigger.setAttribute("aria-expanded", "true");
-		requestAnimationFrame(() =>
-			menu.querySelector<HTMLButtonElement>("button")?.focus(),
-		);
+function closeQueryHelpPopover(): void {
+	const popover = $("#queryHelpPopover");
+	const api = getPopoverAPI(popover);
+	if (isPopoverOpen(popover) && api.hidePopover) api.hidePopover();
+	else if (!api.showPopover) {
+		popover.setAttribute("hidden", "");
+		popover.classList.remove("popover-fallback-open");
 	}
+	$("#queryHelpButton").setAttribute("aria-expanded", "false");
 }
 
 function focusGlobalSearch(): void {
@@ -446,8 +498,14 @@ function shiftTimelineRange(step: number): void {
 }
 
 function setDrawerOpen(open: boolean): void {
-	const appShell = $("#appShell") as HTMLElement & { inert: boolean };
-	appShell.inert = open;
+	const drawer = $("#detailDrawer") as HTMLDialogElement;
+	if (open && !drawer.open) {
+		if (drawer.showModal) drawer.showModal();
+		else drawer.setAttribute("open", "");
+	} else if (!open && drawer.open) {
+		if (drawer.close) drawer.close();
+		else drawer.removeAttribute("open");
+	}
 	document.body.classList.toggle("drawer-open", open);
 }
 
@@ -493,7 +551,8 @@ function clearCustomRange(): void {
 }
 
 function openDetail(entryId: string): void {
-	const drawerWasHidden = $("#detailDrawer").hasAttribute("hidden");
+	const drawer = $("#detailDrawer") as HTMLDialogElement;
+	const drawerWasClosed = !drawer.open;
 	detailReturnFocusId = entryId;
 	state.selectedId = entryId;
 	setDrawerOpen(true);
@@ -504,7 +563,7 @@ function openDetail(entryId: string): void {
 		);
 	});
 	renderDetail();
-	if (drawerWasHidden) {
+	if (drawerWasClosed) {
 		const focusCloseButton = () => $("#closeDetailButton").focus();
 		focusCloseButton();
 		requestAnimationFrame(focusCloseButton);
@@ -601,9 +660,8 @@ function moveEntryFocus(delta: number, edge?: "first" | "last"): void {
 function setupEvents(): void {
 	$("#consoleMenuButton").addEventListener("click", toggleMobileNav);
 	$("#mobileNavBackdrop").addEventListener("click", closeMobileOverlay);
-	$("#headerMenuButton").addEventListener("click", () =>
-		toggleMenu($("#headerMenu"), $("#headerMenuButton")),
-	);
+	setupPopover("#headerMenu", "#headerMenuButton");
+	setupPopover("#queryHelpPopover", "#queryHelpButton");
 	$("#themeToggleButton").addEventListener("click", () => {
 		applyTheme(state.theme === "dark" ? "light" : "dark");
 		closeHeaderMenus(true);
@@ -651,10 +709,7 @@ function setupEvents(): void {
 		const target = event.target as Element;
 		if (!target.closest(".query-editor")) closeQuerySuggestions();
 		if (!target.closest(".global-header")) closeHeaderMenus();
-		if (!target.closest(".query-help")) {
-			$("#queryHelpPopover").setAttribute("hidden", "");
-			$("#queryHelpButton").setAttribute("aria-expanded", "false");
-		}
+		if (!target.closest(".query-help")) closeQueryHelpPopover();
 	});
 	$("#containerFilter").addEventListener("change", (event: Event) => {
 		state.container = (event.target as HTMLSelectElement).value;
@@ -710,15 +765,12 @@ function setupEvents(): void {
 	});
 	$("#applyCustomRangeButton").addEventListener("click", applyCustomRange);
 	$("#clearCustomRangeButton").addEventListener("click", clearCustomRange);
+	$("#detailDrawer").addEventListener("cancel", (event) => {
+		event.preventDefault();
+		closeDetail();
+	});
 	$("#closeDetailButton").addEventListener("click", closeDetail);
 	$("#errorDismiss").addEventListener("click", () => clearError());
-	$("#errorDetailsToggle").addEventListener("click", () => {
-		const button = $("#errorDetailsToggle");
-		const details = $("#errorDetails");
-		const open = details.hasAttribute("hidden");
-		details.toggleAttribute("hidden", !open);
-		button.setAttribute("aria-expanded", String(open));
-	});
 	$("#entryList").addEventListener("click", (event: MouseEvent) => {
 		const target = event.target as Element;
 		const row = target.closest<HTMLButtonElement>(".entry-row");
@@ -736,13 +788,6 @@ function setupEvents(): void {
 		void copyText(window.location.href).then((copied) =>
 			toast(copied ? t("common.linkCopied") : t("detail.copyFailed")),
 		);
-	});
-	$("#queryHelpButton").addEventListener("click", () => {
-		const button = $("#queryHelpButton");
-		const popover = $("#queryHelpPopover");
-		const open = popover.hasAttribute("hidden");
-		popover.toggleAttribute("hidden", !open);
-		button.setAttribute("aria-expanded", String(open));
 	});
 	$("#fieldsToggle").addEventListener("click", () => {
 		state.fieldsHidden = !state.fieldsHidden;
@@ -798,25 +843,20 @@ function setupEvents(): void {
 			focusGlobalSearch();
 		}
 		if (event.key === "Escape") {
-			if (!$("#detailDrawer").hasAttribute("hidden")) closeDetail();
-			else if (
-				state.navExpanded ||
-				document.body.classList.contains("fields-open")
-			)
+			if (state.navExpanded || document.body.classList.contains("fields-open"))
 				closeMobileOverlay();
 			else {
 				closeHeaderMenus(true);
-				$("#queryHelpPopover").setAttribute("hidden", "");
-				$("#queryHelpButton").setAttribute("aria-expanded", "false");
+				closeQueryHelpPopover();
 			}
 		}
+		if (($("#detailDrawer") as HTMLDialogElement).open) return;
 		const inTextControl =
 			activeTag === "INPUT" ||
 			activeTag === "TEXTAREA" ||
 			activeTag === "SELECT" ||
 			(document.activeElement as HTMLElement)?.isContentEditable;
 		const activeRow = document.activeElement?.classList.contains("entry-row");
-		if (!inTextControl && !$("#detailDrawer").hasAttribute("hidden")) return;
 		if (
 			!inTextControl &&
 			(activeRow || event.key === "j" || event.key === "k")
@@ -836,21 +876,6 @@ function setupEvents(): void {
 			if (event.key === "End") {
 				event.preventDefault();
 				moveEntryFocus(0, "last");
-			}
-		}
-		if (event.key === "Tab" && !$("#detailDrawer").hasAttribute("hidden")) {
-			const focusable = $$<HTMLElement>(
-				"#detailDrawer button, #detailDrawer [href], #detailDrawer input, #detailDrawer textarea",
-			).filter((element) => !element.hasAttribute("disabled"));
-			if (!focusable.length) return;
-			const first = focusable[0];
-			const last = focusable[focusable.length - 1];
-			if (event.shiftKey && document.activeElement === first) {
-				event.preventDefault();
-				last.focus();
-			} else if (!event.shiftKey && document.activeElement === last) {
-				event.preventDefault();
-				first.focus();
 			}
 		}
 	});
