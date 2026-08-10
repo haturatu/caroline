@@ -71,6 +71,10 @@ export interface AlertRule {
 	id: string;
 	name: string;
 	query: string;
+	severity?: string;
+	labels?: Record<string, string>;
+	runbookUrl?: string;
+	sampleMode: "off" | "summary" | "full" | string;
 	threshold: number;
 	windowSeconds: number;
 	cooldownSeconds: number;
@@ -79,6 +83,7 @@ export interface AlertRule {
 	status: "OK" | "FIRING" | string;
 	matchCount: number;
 	lastFiredAt?: string;
+	firingSince?: string;
 	updatedAt: string;
 }
 

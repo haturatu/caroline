@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -15,7 +16,8 @@ import (
 )
 
 type Webhook struct {
-	Client *http.Client
+	Client          *http.Client
+	ExplorerBaseURL string
 }
 
 func (w Webhook) Notify(ctx context.Context, rule alert.Rule, notification alert.Notification) error {
@@ -26,6 +28,11 @@ func (w Webhook) Notify(ctx context.Context, rule alert.Rule, notification alert
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second}
 	}
+	notification = alert.SanitizeNotification(notification)
+	if notification.RunbookURL == "" {
+		notification.RunbookURL = rule.RunbookURL
+	}
+	notification = enrichNotification(notification, w.ExplorerBaseURL)
 	endpoint := rule.WebhookURL
 	var body []byte
 	var err error
@@ -71,10 +78,12 @@ type discordAllowedMentions struct {
 
 type discordEmbed struct {
 	Title       string              `json:"title"`
+	URL         string              `json:"url,omitempty"`
 	Description string              `json:"description"`
 	Color       int                 `json:"color"`
 	Timestamp   string              `json:"timestamp"`
 	Fields      []discordEmbedField `json:"fields,omitempty"`
+	Footer      *discordEmbedFooter `json:"footer,omitempty"`
 }
 
 type discordEmbedField struct {
@@ -83,18 +92,49 @@ type discordEmbedField struct {
 	Inline bool   `json:"inline,omitempty"`
 }
 
+type discordEmbedFooter struct {
+	Text string `json:"text"`
+}
+
 func discordPayload(notification alert.Notification) discordWebhookPayload {
-	event := "Alert firing"
+	event := "🔴 FIRING"
 	color := 0xED4245
 	if notification.Event == "alert.resolved" {
-		event = "Alert resolved"
+		event = "🟢 RESOLVED"
 		color = 0x57F287
 	}
 
-	fields := []discordEmbedField{
-		{Name: "Matches", Value: fmt.Sprintf("%d / %d", notification.Value, notification.Threshold), Inline: true},
-		{Name: "Window", Value: formatSeconds(notification.WindowSeconds), Inline: true},
-		{Name: "Cooldown", Value: formatSeconds(notification.CooldownSeconds), Inline: true},
+	fields := make([]discordEmbedField, 0, 10)
+	if notification.Container != "" {
+		fields = append(fields, discordEmbedField{Name: "Container", Value: truncateDiscordText(notification.Container, 1024), Inline: true})
+	}
+	if notification.Event == "alert.resolved" {
+		peak := notification.PeakValue
+		if peak < notification.Value {
+			peak = notification.Value
+		}
+		fields = append(fields,
+			discordEmbedField{Name: "Peak / Current", Value: fmt.Sprintf("%d → %d matches / %s", peak, notification.Value, formatSeconds(notification.WindowSeconds)), Inline: true},
+			discordEmbedField{Name: "Duration", Value: formatDuration(notification.StartedAt, notification.Timestamp), Inline: true},
+			discordEmbedField{Name: "Resolved at", Value: formatTimestamp(notification.Timestamp), Inline: true},
+		)
+	} else {
+		fields = append(fields,
+			discordEmbedField{Name: "Condition", Value: fmt.Sprintf("%d matches ≥ %d / %s", notification.Value, notification.Threshold, formatSeconds(notification.WindowSeconds)), Inline: true},
+			discordEmbedField{Name: "First triggered", Value: formatTimestamp(pointerOr(&notification.Timestamp, notification.StartedAt)), Inline: true},
+			discordEmbedField{Name: "Duration", Value: formatDuration(notification.StartedAt, notification.Timestamp), Inline: true},
+		)
+	}
+	if notification.Severity != "" {
+		fields = append(fields, discordEmbedField{Name: "Severity", Value: truncateDiscordText(notification.Severity, 1024), Inline: true})
+	}
+	query := notification.Query
+	if query == "" {
+		query = "All logs"
+	}
+	fields = append(fields, discordEmbedField{Name: "Query", Value: truncateDiscordText(query, 1024)})
+	if len(notification.Labels) > 0 {
+		fields = append(fields, discordEmbedField{Name: "Labels", Value: truncateDiscordText(formatLabels(notification.Labels), 1024)})
 	}
 	if notification.Sample != nil {
 		sample := strings.TrimSpace(notification.Sample.Summary)
@@ -108,22 +148,136 @@ func discordPayload(notification alert.Notification) discordWebhookPayload {
 			})
 		}
 	}
+	links := make([]string, 0, 2)
+	if notification.ExplorerURL != "" {
+		links = append(links, fmt.Sprintf("[Open in Caroline](%s)", notification.ExplorerURL))
+	}
+	if notification.RunbookURL != "" {
+		links = append(links, fmt.Sprintf("[Runbook](%s)", notification.RunbookURL))
+	}
+	if len(links) > 0 {
+		fields = append(fields, discordEmbedField{Name: "Actions", Value: strings.Join(links, " · ")})
+	}
+	footerText := "Cooldown " + formatSeconds(notification.CooldownSeconds)
+	if notification.RuleID != "" {
+		footerText += " · " + notification.RuleID
+	}
 
 	return discordWebhookPayload{
 		Username: "Caroline",
 		Embeds: []discordEmbed{{
-			Title:       truncateDiscordText(fmt.Sprintf("%s: %s", event, notification.Rule), 256),
-			Description: "A Caroline log alert changed state.",
+			Title:       truncateDiscordText(fmt.Sprintf("%s · %s", event, notification.Rule), 256),
+			URL:         notification.ExplorerURL,
+			Description: discordDescription(notification),
 			Color:       color,
 			Timestamp:   notification.Timestamp.UTC().Format(time.RFC3339Nano),
 			Fields:      fields,
+			Footer:      &discordEmbedFooter{Text: truncateDiscordText(footerText, 2048)},
 		}},
 		AllowedMentions: discordAllowedMentions{Parse: []string{}},
 	}
 }
 
+func discordDescription(notification alert.Notification) string {
+	if notification.Event == "alert.resolved" {
+		return "The alert condition has recovered."
+	}
+	return "The alert condition is firing."
+}
+
+func pointerOr(fallback *time.Time, value *time.Time) time.Time {
+	if value != nil {
+		return *value
+	}
+	return *fallback
+}
+
+func formatTimestamp(value time.Time) string {
+	return value.UTC().Format("2006-01-02 15:04:05 MST")
+}
+
+func formatDuration(startedAt *time.Time, end time.Time) string {
+	if startedAt == nil {
+		return "Unknown"
+	}
+	duration := end.Sub(*startedAt)
+	if duration < 0 {
+		duration = 0
+	}
+	return formatDurationValue(duration)
+}
+
+func formatDurationValue(duration time.Duration) string {
+	seconds := int64(duration / time.Second)
+	if seconds < 1 {
+		return "0s"
+	}
+	parts := make([]string, 0, 3)
+	if days := seconds / (24 * 60 * 60); days > 0 {
+		parts = append(parts, fmt.Sprintf("%dd", days))
+		seconds %= 24 * 60 * 60
+	}
+	if hours := seconds / (60 * 60); hours > 0 {
+		parts = append(parts, fmt.Sprintf("%dh", hours))
+		seconds %= 60 * 60
+	}
+	if minutes := seconds / 60; minutes > 0 {
+		parts = append(parts, fmt.Sprintf("%dm", minutes))
+		seconds %= 60
+	}
+	if seconds > 0 {
+		parts = append(parts, fmt.Sprintf("%ds", seconds))
+	}
+	return strings.Join(parts, " ")
+}
+
+func formatLabels(labels map[string]string) string {
+	keys := make([]string, 0, len(labels))
+	for key := range labels {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, key+"="+labels[key])
+	}
+	return strings.Join(parts, ", ")
+}
+
+func enrichNotification(notification alert.Notification, baseURL string) alert.Notification {
+	if notification.ExplorerURL == "" {
+		notification.ExplorerURL = buildExplorerURL(baseURL, notification)
+	}
+	return notification
+}
+
+func buildExplorerURL(baseURL string, notification alert.Notification) string {
+	baseURL = strings.TrimSpace(baseURL)
+	if baseURL == "" {
+		return ""
+	}
+	parsed, err := url.Parse(baseURL)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return ""
+	}
+	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/"
+	query := parsed.Query()
+	if notification.Query != "" {
+		query.Set("q", notification.Query)
+	}
+	from := notification.Timestamp.Add(-5 * time.Minute)
+	if notification.StartedAt != nil {
+		from = notification.StartedAt.Add(-5 * time.Minute)
+	}
+	query.Set("from", from.UTC().Format(time.RFC3339Nano))
+	query.Set("to", notification.Timestamp.Add(time.Minute).UTC().Format(time.RFC3339Nano))
+	query.Set("sort", "desc")
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
+}
+
 func formatSeconds(seconds int) string {
-	return (time.Duration(seconds) * time.Second).String()
+	return formatDurationValue(time.Duration(seconds) * time.Second)
 }
 
 func truncateDiscordText(value string, limit int) string {

@@ -31,7 +31,7 @@ func TestNormalizeSpec(t *testing.T) {
 	if err != nil {
 		t.Fatalf("normalizeSpec returned error: %v", err)
 	}
-	if rule.Name != "API errors" || rule.Enabled || rule.WebhookURL == "" {
+	if rule.Name != "API errors" || rule.Enabled || rule.WebhookURL == "" || rule.SampleMode != SampleModeSummary {
 		t.Fatalf("unexpected normalized rule: %#v", rule)
 	}
 
@@ -40,6 +40,8 @@ func TestNormalizeSpec(t *testing.T) {
 		{Name: "invalid threshold", Threshold: 0, WindowSeconds: 60},
 		{Name: "invalid window", Threshold: 1, WindowSeconds: 0},
 		{Name: "invalid webhook", Threshold: 1, WindowSeconds: 60, WebhookURL: "ftp://example.test"},
+		{Name: "invalid runbook", Threshold: 1, WindowSeconds: 60, RunbookURL: "ftp://example.test"},
+		{Name: "invalid sample mode", Threshold: 1, WindowSeconds: 60, SampleMode: "everything"},
 	} {
 		if _, err := normalizeSpec(spec); err == nil {
 			t.Fatalf("normalizeSpec accepted invalid rule: %#v", spec)
@@ -53,6 +55,9 @@ func TestEngineFiresAndResolvesRule(t *testing.T) {
 	rule, err := engine.Create(RuleSpec{
 		Name:            "Errors",
 		Query:           "severity >= ERROR",
+		Severity:        "critical",
+		Labels:          map[string]string{"service": "api"},
+		RunbookURL:      "https://runbooks.example.test/api-errors",
 		Threshold:       2,
 		WindowSeconds:   60,
 		CooldownSeconds: 600,
@@ -68,6 +73,7 @@ func TestEngineFiresAndResolvesRule(t *testing.T) {
 		Severity:  "ERROR",
 		Summary:   "request failed",
 		Stream:    "stderr",
+		Resource:  explorer.Resource{Labels: map[string]string{"container_name": "api-1"}},
 	}
 	engine.processEntry(context.Background(), entry)
 	if len(notifier.notifications) != 0 {
@@ -79,6 +85,13 @@ func TestEngineFiresAndResolvesRule(t *testing.T) {
 	if len(notifier.notifications) != 1 || notifier.notifications[0].Event != "alert.firing" {
 		t.Fatalf("unexpected firing notifications: %#v", notifier.notifications)
 	}
+	firing := notifier.notifications[0]
+	if firing.RuleID != rule.ID || firing.Container != "api-1" || firing.Severity != "critical" || firing.Query != rule.Query || firing.StartedAt == nil || firing.PeakValue != 2 {
+		t.Fatalf("firing notification lost context: %#v", firing)
+	}
+	if firing.Labels["service"] != "api" || firing.RunbookURL == "" {
+		t.Fatalf("firing notification lost routing metadata: %#v", firing)
+	}
 
 	engine.resolve(context.Background())
 	if len(notifier.notifications) != 1 {
@@ -87,12 +100,16 @@ func TestEngineFiresAndResolvesRule(t *testing.T) {
 
 	engine.mu.Lock()
 	state := engine.states[rule.ID]
+	state.Container = "api-1"
 	state.Matches = []time.Time{now.Add(-2 * time.Minute)}
 	engine.states[rule.ID] = state
 	engine.mu.Unlock()
 	engine.resolve(context.Background())
 	if len(notifier.notifications) != 2 || notifier.notifications[1].Event != "alert.resolved" {
 		t.Fatalf("unexpected resolved notifications: %#v", notifier.notifications)
+	}
+	if notifier.notifications[1].Container != "api-1" || notifier.notifications[1].StartedAt == nil || notifier.notifications[1].PeakValue != 2 {
+		t.Fatalf("resolved notification lost incident context: %#v", notifier.notifications[1])
 	}
 }
 
