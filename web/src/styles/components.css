@@ -352,7 +352,9 @@
 .query-help-popover {
 	position: fixed;
 	z-index: 8;
+	inset-block-start: auto;
 	inset-block-end: max(12px, env(safe-area-inset-bottom));
+	inset-inline-start: auto;
 	inset-inline-end: max(12px, env(safe-area-inset-right));
 	width: min(360px, calc(100vw - 32px));
 	margin: 0;
@@ -362,20 +364,6 @@
 	border: 1px solid var(--border-strong);
 	border-radius: 5px;
 	box-shadow: 0 8px 24px var(--shadow);
-}
-
-@supports (position-area: block-start) {
-	#queryHelpButton {
-		anchor-name: --query-help-trigger;
-	}
-
-	.query-help-popover[popover] {
-		position: absolute;
-		inset: auto;
-		position-anchor: --query-help-trigger;
-		position-area: block-start span-inline-end;
-		margin-block-end: 6px;
-	}
 }
 
 .query-help-popover strong {
@@ -1024,14 +1012,18 @@
 .detail-drawer {
 	position: fixed;
 	z-index: 40;
-	inset-block: 52px 0;
-	inset-inline: auto 0;
+	inset-block-start: var(--app-header-height);
+	inset-block-end: 0;
+	inset-inline-start: auto;
+	inset-inline-end: 0;
 	display: none;
 	inline-size: min(430px, 100dvw);
+	max-inline-size: none;
 	block-size: auto;
 	max-block-size: none;
 	margin: 0;
 	padding: 18px;
+	border: 0;
 	overflow: auto;
 	overscroll-behavior: contain;
 	color: var(--text);
@@ -1061,6 +1053,10 @@
 }
 
 body.drawer-open {
+	overflow: hidden;
+}
+
+html.drawer-open {
 	overflow: hidden;
 }
 

@@ -519,6 +519,7 @@ function setDrawerOpen(open: boolean): void {
 		if (drawer.close) drawer.close();
 		else drawer.removeAttribute("open");
 	}
+	document.documentElement.classList.toggle("drawer-open", open);
 	document.body.classList.toggle("drawer-open", open);
 }
 
