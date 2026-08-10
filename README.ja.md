@@ -87,7 +87,7 @@ Streaming を停止すると SSE 接続を閉じます。フィルター、時�
 
 ### Timeline / Fields / Logs
 
-- **Timeline**: 検索結果を 24 区間に分け、severity 別に表示します。バーのクリック、または範囲ドラッグで時間範囲を変更できます。ズームボタンも利用できます。
+- **Timeline**: 表示幅に応じて検索結果を 24〜96 区間に分け、severity 別に表示します。バーのクリック、または範囲ドラッグで時間範囲を変更できます。ズームボタンも利用できます。
 - **Fields**: 検索結果に含まれる System Metadata と Frequent Fields を集計します。フィールドの値をクリックすると、その値を Advanced Query に追加します。
 - **Logs**: 新しい順 / 古い順の切り替え、Wrap Lines、Load More に対応します。
 - 行を選択すると詳細 drawer が開き、Summary、Payload、メタデータ、Entry JSON のコピーを確認できます。
@@ -201,7 +201,7 @@ Docker Engine への接続状態、Docker version、API version、確認時刻�
 curl 'http://localhost:8080/api/explorer?duration=15m&limit=100&q=severity%20%3E%3D%20ERROR&sort=desc'
 ```
 
-レスポンスには `entries` のほか、`containers`、24 区間の `timeline`、`fields`、`total`、`generatedAt`、`from`、`to`、`approximate`、`logTail`、`entryLimit`、`truncated` が含まれます。
+レスポンスには `entries` のほか、表示幅に応じた 24〜96 区間の `timeline`、`containers`、`fields`、`total`、`generatedAt`、`from`、`to`、`approximate`、`logTail`、`entryLimit`、`truncated` が含まれます。
 
 ### `GET /api/tail`
 
@@ -236,9 +236,10 @@ go test ./...
 ├── internal/docker/     # Docker Engine クライアントとログフレーム処理
 ├── internal/explorer/   # 正規化、検索、Timeline、Streaming
 ├── internal/httpserver/ # HTTP API、SSE、静的ファイル配信
-├── src/                 # TypeScript ソース
-├── public/              # HTML / CSS
-├── static/              # npm run build で生成される配信物
+├── index.html           # Vite のアプリケーションエントリ
+├── src/                 # TypeScript、JSX、CSS ソース
+├── public/              # Vite がそのままコピーする任意の静的ファイル
+├── static/              # Vite のビルドで生成される配信物
 ├── Dockerfile
 └── docker-compose.yml
 ```
