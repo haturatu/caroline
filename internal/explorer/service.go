@@ -133,7 +133,12 @@ func (s *Service) Search(ctx context.Context, request SearchRequest) (Response, 
 	})
 
 	response.Total = len(response.Entries)
-	response.Timeline = BuildTimeline(response.Entries, request.From, request.To)
+	response.Timeline = BuildTimeline(
+		response.Entries,
+		request.From,
+		request.To,
+		request.TimelineBuckets,
+	)
 	response.Fields = BuildFieldGroups(response.Entries)
 
 	start := 0

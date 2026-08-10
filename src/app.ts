@@ -2,7 +2,10 @@ import {
 	fetchExplorer,
 	fetchStatus,
 	hydrateURL,
+	maxTimelineBuckets,
+	minTimelineBuckets,
 	openTail,
+	setTimelineBuckets,
 	syncURL,
 } from "./api.js";
 import { $$, $, escapeHTML } from "./dom.js";
@@ -41,9 +44,43 @@ let fieldsReturnFocus: HTMLElement | null = null;
 let errorContextFocused = false;
 let initialLoadingTimer: number | null = null;
 let initialLoadingVisibleAt = 0;
+let currentTimelineBucketCount = 0;
+let timelineResizeTimer: number | null = null;
 
 const loadingShowDelay = 200;
 const loadingMinimumDuration = 350;
+
+function timelineBucketCount(width: number): number {
+	return Math.min(
+		maxTimelineBuckets,
+		Math.max(minTimelineBuckets, Math.round(width / 28)),
+	);
+}
+
+function setupTimelineResolution(): void {
+	const chart = $("#timelineChart");
+	const update = (width: number): void => {
+		const next = timelineBucketCount(width || window.innerWidth);
+		if (next === currentTimelineBucketCount) return;
+		currentTimelineBucketCount = next;
+		setTimelineBuckets(next);
+		if (!state.response) return;
+		if (timelineResizeTimer !== null) window.clearTimeout(timelineResizeTimer);
+		timelineResizeTimer = window.setTimeout(() => {
+			timelineResizeTimer = null;
+			state.pageToken = "";
+			syncURL();
+			void loadExplorer();
+		}, 180);
+	};
+
+	update(chart.getBoundingClientRect().width);
+	if (typeof ResizeObserver === "undefined") return;
+	const observer = new ResizeObserver(([entry]) => {
+		if (entry) update(entry.contentRect.width);
+	});
+	observer.observe(chart);
+}
 
 function renderErrorBanner(): void {
 	const banner = $("#errorBanner");
@@ -932,6 +969,7 @@ setupEvents();
 setLocale(getLocale());
 setupLocale();
 applyTheme(loadSavedTheme());
+setupTimelineResolution();
 syncMobileFieldsOverlay();
 setLive(state.live);
 void loadStatus();

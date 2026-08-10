@@ -8,6 +8,9 @@ import (
 )
 
 const (
+	DefaultTimelineBuckets      = 24
+	MinTimelineBuckets          = 24
+	MaxTimelineBuckets          = 96
 	MaxLogTail                  = 1000
 	MaxEntries                  = 50000
 	MaxConcurrentDockerRequests = 8
@@ -88,16 +91,17 @@ type Cursor struct {
 }
 
 type SearchRequest struct {
-	From     time.Time
-	To       time.Time
-	Duration string
-	Query    string
-	Severity string
-	Stream   string
-	Sort     string
-	Selected map[string]bool
-	Limit    int
-	Cursor   *Cursor
+	From            time.Time
+	To              time.Time
+	Duration        string
+	Query           string
+	Severity        string
+	Stream          string
+	Sort            string
+	Selected        map[string]bool
+	Limit           int
+	Cursor          *Cursor
+	TimelineBuckets int
 }
 
 type TailRequest struct {

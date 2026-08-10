@@ -25,7 +25,12 @@ func parseExplorerRequest(r *http.Request) (explorer.SearchRequest, error) {
 		Sort:     strings.ToLower(strings.TrimSpace(query.Get("sort"))),
 		Selected: explorer.RequestedContainers(query.Get("containers")),
 		Limit:    queryInt(query.Get("limit"), 100),
+		TimelineBuckets: queryInt(
+			query.Get("timelineBuckets"),
+			explorer.DefaultTimelineBuckets,
+		),
 	}
+	request.TimelineBuckets = explorer.NormalizeTimelineBuckets(request.TimelineBuckets)
 	if value := strings.TrimSpace(query.Get("pageToken")); value != "" {
 		cursor, err := explorer.DecodeCursor(value)
 		if err != nil {

@@ -28,14 +28,27 @@ func ParseDuration(value string) time.Duration {
 	return parsed
 }
 
-func BuildTimeline(entries []Entry, from, to time.Time) []TimelineBucket {
-	const bucketCount = 24
+func NormalizeTimelineBuckets(value int) int {
+	if value <= 0 {
+		return DefaultTimelineBuckets
+	}
+	if value < MinTimelineBuckets {
+		return MinTimelineBuckets
+	}
+	if value > MaxTimelineBuckets {
+		return MaxTimelineBuckets
+	}
+	return value
+}
+
+func BuildTimeline(entries []Entry, from, to time.Time, requestedBucketCount int) []TimelineBucket {
 	duration := to.Sub(from)
 	if duration <= 0 {
 		return nil
 	}
+	bucketCount := NormalizeTimelineBuckets(requestedBucketCount)
 	buckets := make([]TimelineBucket, bucketCount)
-	span := duration / bucketCount
+	span := duration / time.Duration(bucketCount)
 	for index := range buckets {
 		start := from.Add(time.Duration(index) * span)
 		end := start.Add(span)

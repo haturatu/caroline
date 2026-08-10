@@ -339,10 +339,12 @@ export function renderTimeline(): void {
 	);
 	const bars = response.timeline
 		.map((bucket, index) => {
-			if (!bucket.total) return "";
-			const height = Math.max(4, Math.round((bucket.total / maximum) * 68));
+			const height = bucket.total
+				? Math.max(4, Math.round((bucket.total / maximum) * 68))
+				: 2;
 			const position = ((index + 0.5) / response.timeline.length) * 100;
-			return `<button class="timeline-bar" type="button" data-index="${index}" data-start="${escapeHTML(bucket.start)}" data-end="${escapeHTML(bucket.end)}" style="--bar-position:${position}%;--bar-height:${height}px" aria-label="${escapeHTML(timelineBucketAriaLabel(bucket))}"><span class="timeline-bar-inner">${timelineSegment(bucket, "ERROR", "error")}${timelineSegment(bucket, "WARNING", "warning")}${timelineSegment(bucket, "INFO", "info")}${timelineSegment(bucket, "DEBUG", "debug")}</span></button>`;
+			const emptyClass = bucket.total ? "" : " empty";
+			return `<button class="timeline-bar${emptyClass}" type="button" data-index="${index}" data-start="${escapeHTML(bucket.start)}" data-end="${escapeHTML(bucket.end)}" style="--bar-position:${position}%;--bar-height:${height}px" aria-label="${escapeHTML(timelineBucketAriaLabel(bucket))}"><span class="timeline-bar-inner">${timelineSegment(bucket, "ERROR", "error")}${timelineSegment(bucket, "WARNING", "warning")}${timelineSegment(bucket, "INFO", "info")}${timelineSegment(bucket, "DEBUG", "debug")}</span></button>`;
 		})
 		.join("");
 	const selection = timelineSelection(response);
