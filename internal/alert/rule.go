@@ -39,10 +39,11 @@ type RuleSpec struct {
 }
 
 type RuleState struct {
-	Status      string      `json:"status"`
-	Matches     []time.Time `json:"matches"`
-	LastFiredAt *time.Time  `json:"lastFiredAt,omitempty"`
-	UpdatedAt   time.Time   `json:"updatedAt"`
+	Status                 string      `json:"status"`
+	Matches                []time.Time `json:"matches"`
+	LastFiredAt            *time.Time  `json:"lastFiredAt,omitempty"`
+	FiringNotificationSent bool        `json:"firingNotificationSent"`
+	UpdatedAt              time.Time   `json:"updatedAt"`
 }
 
 type RuleView struct {

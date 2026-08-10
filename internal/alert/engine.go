@@ -24,7 +24,10 @@ var (
 	ErrPersistence  = errors.New("alert persistence failed")
 )
 
-const alertStoreVersion = 1
+const (
+	alertStoreVersion       = 2
+	legacyAlertStoreVersion = 1
+)
 
 type Notification struct {
 	Event           string          `json:"event"`
@@ -233,9 +236,11 @@ func (e *Engine) processEntry(ctx context.Context, entry explorer.Entry) {
 		if len(state.Matches) >= rule.Threshold {
 			if state.Status != StatusFiring {
 				state.Status = StatusFiring
+				state.FiringNotificationSent = false
 				if state.LastFiredAt == nil || now.Sub(*state.LastFiredAt) >= rule.cooldown() {
 					firedAt := now
 					state.LastFiredAt = &firedAt
+					state.FiringNotificationSent = true
 					notifications = append(notifications, struct {
 						rule Rule
 						item Notification
@@ -273,10 +278,13 @@ func (e *Engine) resolve(ctx context.Context) {
 			state.Status = StatusOK
 			state.UpdatedAt = now
 			changed = true
-			notifications = append(notifications, struct {
-				rule Rule
-				item Notification
-			}{rule: rule, item: notificationFor(rule, "alert.resolved", len(state.Matches), now, nil)})
+			if state.FiringNotificationSent {
+				notifications = append(notifications, struct {
+					rule Rule
+					item Notification
+				}{rule: rule, item: notificationFor(rule, "alert.resolved", len(state.Matches), now, nil)})
+			}
+			state.FiringNotificationSent = false
 		}
 		e.states[id] = state
 	}
@@ -367,7 +375,7 @@ func (e *Engine) load() error {
 	if err := decoder.Decode(&store); err != nil {
 		return fmt.Errorf("decode %q: %w", e.store, err)
 	}
-	if store.Version != alertStoreVersion {
+	if store.Version != legacyAlertStoreVersion && store.Version != alertStoreVersion {
 		return fmt.Errorf("unsupported alert store version %d", store.Version)
 	}
 
@@ -396,6 +404,11 @@ func (e *Engine) load() error {
 		state := store.States[saved.ID]
 		if state.Status == "" {
 			state.Status = StatusOK
+		}
+		if store.Version == legacyAlertStoreVersion && state.Status == StatusFiring {
+			// Version 1 did not persist whether the firing notification was
+			// sent. Treat an active legacy rule as notified during migration.
+			state.FiringNotificationSent = true
 		}
 		if state.Status != StatusOK && state.Status != StatusFiring {
 			return fmt.Errorf("alert store contains invalid status %q for rule %q", state.Status, saved.ID)

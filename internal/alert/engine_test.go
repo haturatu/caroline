@@ -95,3 +95,50 @@ func TestEngineFiresAndResolvesRule(t *testing.T) {
 		t.Fatalf("unexpected resolved notifications: %#v", notifier.notifications)
 	}
 }
+
+func TestEngineDoesNotNotifyResolutionForSuppressedRefire(t *testing.T) {
+	notifier := &recordingNotifier{}
+	engine := NewEngine(nil, notifier)
+	rule, err := engine.Create(RuleSpec{
+		Name:            "Errors",
+		Query:           "severity >= ERROR",
+		Threshold:       1,
+		WindowSeconds:   60,
+		CooldownSeconds: 10 * 60,
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+
+	entry := explorer.Entry{Severity: "ERROR", Summary: "request failed"}
+	engine.processEntry(context.Background(), entry)
+	if len(notifier.notifications) != 1 || notifier.notifications[0].Event != "alert.firing" {
+		t.Fatalf("unexpected initial firing notifications: %#v", notifier.notifications)
+	}
+
+	expireRuleMatches(engine, rule.ID)
+	engine.resolve(context.Background())
+	if len(notifier.notifications) != 2 || notifier.notifications[1].Event != "alert.resolved" {
+		t.Fatalf("unexpected initial resolution notifications: %#v", notifier.notifications)
+	}
+
+	entry.InsertID = "refire"
+	engine.processEntry(context.Background(), entry)
+	if len(notifier.notifications) != 2 {
+		t.Fatalf("cooldown-suppressed refire sent a notification: %#v", notifier.notifications)
+	}
+
+	expireRuleMatches(engine, rule.ID)
+	engine.resolve(context.Background())
+	if len(notifier.notifications) != 2 {
+		t.Fatalf("suppressed refire produced a duplicate resolution: %#v", notifier.notifications)
+	}
+}
+
+func expireRuleMatches(engine *Engine, ruleID string) {
+	engine.mu.Lock()
+	state := engine.states[ruleID]
+	state.Matches = []time.Time{time.Now().UTC().Add(-2 * time.Minute)}
+	engine.states[ruleID] = state
+	engine.mu.Unlock()
+}
