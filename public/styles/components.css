@@ -649,8 +649,9 @@
 }
 
 .results-table-scroll {
+	--results-columns: 154px 86px 190px minmax(190px, 1fr) 30px;
 	display: grid;
-	grid-template-columns: 154px 86px 190px minmax(190px, 1fr) 30px;
+	grid-template-columns: var(--results-columns);
 	column-gap: 10px;
 	row-gap: 0;
 	min-inline-size: 690px;
@@ -662,13 +663,14 @@
 .entry-list {
 	display: grid;
 	grid-column: 1 / -1;
-	grid-template-columns: subgrid;
+	grid-template-columns: var(--results-columns);
 }
 
 .results-table-head {
 	position: sticky;
 	top: 0;
 	z-index: 1;
+	column-gap: 10px;
 	padding: 7px 12px;
 	color: var(--faint);
 	background: var(--surface-soft);
@@ -696,6 +698,7 @@
 	inline-size: 100%;
 	min-height: 42px;
 	min-inline-size: 0;
+	grid-template-columns: var(--results-columns);
 	padding: 5px 12px;
 	color: var(--text);
 	text-align: left;

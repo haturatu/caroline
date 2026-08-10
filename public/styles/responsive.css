@@ -249,7 +249,7 @@
 @container results-column (inline-size <= 760px) {
 	.results-table-scroll {
 		min-inline-size: 0;
-		grid-template-columns: 120px 70px 130px minmax(0, 1fr) 24px;
+		--results-columns: 120px 70px 130px minmax(0, 1fr) 24px;
 	}
 
 	.results-table-head,
