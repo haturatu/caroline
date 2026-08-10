@@ -206,7 +206,7 @@ export const en = {
 		window: "Window (seconds)",
 		cooldown: "Cooldown (seconds)",
 		webhook: "Webhook URL",
-		webhookOptional: "Optional generic webhook",
+		webhookOptional: "Optional webhook URL (auto-detected)",
 		save: "Create Alert",
 		cancel: "Cancel",
 		delete: "Delete",

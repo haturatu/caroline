@@ -204,7 +204,7 @@ export const zhTW = {
 		window: "時間視窗（秒）",
 		cooldown: "冷卻時間（秒）",
 		webhook: "Webhook URL",
-		webhookOptional: "選用的通用 Webhook",
+		webhookOptional: "選用的 Webhook URL（依網址自動判定）",
 		save: "建立警示",
 		cancel: "取消",
 		delete: "刪除",
