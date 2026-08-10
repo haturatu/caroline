@@ -68,6 +68,7 @@ The server listens on <http://localhost:8080> by default.
 | --- | --- | --- |
 | `PORT` | `8080` | Port used by the web server |
 | `DOCKER_HOST` | `unix:///var/run/docker.sock` | Docker Engine endpoint |
+| `ALERTS_FILE` | `alerts.json` | JSON file used to persist alert rules and state |
 
 `DOCKER_HOST` supports `unix://`, `tcp://`, `http://`, and `https://` endpoints. When using a TCP or HTTP connection, configure authentication, TLS, and network controls on the Docker Engine side as appropriate.
 
@@ -99,7 +100,7 @@ Stopping Streaming closes the SSE connection. Changing filters, the time range, 
 
 Create an alert from the current query with a threshold, time window, cooldown, and optional webhook URL. Discord Incoming Webhook URLs (`https://discord.com/api/webhooks/...`) are sent using Discord's `embeds` payload format; other URLs receive the generic JSON payload. The alert engine consumes the same shared Docker `follow` streams as SSE, so each running container has at most one Caroline-side follow stream regardless of how many alert rules use it.
 
-Rules and their in-memory state are lost when Caroline restarts. Caroline does not store log bodies or matching entries; it only keeps timestamps needed for the active window. A rule transitions between `OK` and `FIRING`, and sends a webhook notification for firing and resolution events when a webhook is configured.
+Rules and alert state are persisted to the JSON file configured by `ALERTS_FILE` and restored on startup. Caroline does not store log bodies or matching entries themselves; it only keeps timestamps needed for the active window. A rule transitions between `OK` and `FIRING`, and sends a webhook notification for firing and resolution events when a webhook is configured. Docker Compose stores the file in the `caroline-data` volume.
 
 ### Timeline, Fields, and Logs
 
@@ -237,7 +238,7 @@ The SSE endpoint and alert engine share a `logstream.Manager`; a browser connect
 
 ### `/api/alerts`
 
-Alert rules are managed in memory. `GET /api/alerts` lists rules, `POST /api/alerts` creates one, `GET` or `PATCH`/`PUT` `/api/alerts/{id}` reads or updates one, and `DELETE /api/alerts/{id}` removes one.
+Alert rules are persisted in the JSON file configured by `ALERTS_FILE`. `GET /api/alerts` lists rules, `POST /api/alerts` creates one, `GET` or `PATCH`/`PUT` `/api/alerts/{id}` reads or updates one, and `DELETE` `/api/alerts/{id}` removes one. Because the file contains webhook URLs, Caroline writes it with `0600` permissions.
 
 Create a rule with JSON such as:
 
@@ -273,7 +274,7 @@ go test ./...
 ├── internal/docker/     # Docker Engine client and log frame processing
 ├── internal/explorer/   # Normalization, search, Timeline, and filters
 ├── internal/logstream/  # Shared Docker follow streams and subscribers
-├── internal/alert/      # In-memory alert engine and webhook notifier
+├── internal/alert/      # JSON-persisted alert engine and webhook notifier
 ├── internal/httpserver/ # HTTP API, SSE, alerts, and static file serving
 ├── web/                 # Frontend application
 │   ├── index.html       # Vite application entry
@@ -293,6 +294,6 @@ go test ./...
 
 Caroline has no authentication or authorization. It runs with access to the Docker socket, so expose port 8080 only to a trusted local network. When using a TCP Docker Engine, configure TLS, authentication, and firewall controls outside Caroline.
 
-Caroline does not store log bodies or search results. Each request reads from the Docker Engine and displays the result as browser state.
+Caroline does not store log bodies or search results. Each request reads from the Docker Engine and displays the result as browser state. Alert configuration and matching timestamps are stored in `ALERTS_FILE`.
 
 The UI uses IBM Plex Sans. IBM Plex Mono is reserved for log bodies, timestamps, the query editor, container IDs, field names, and other monospace values. If Google Fonts is unavailable, the UI falls back to system fonts. Caroline uses Container Queries, `subgrid`, CSS Nesting, `dvh`, `light-dark()`, and other modern CSS features, so a relatively recent browser is recommended.
