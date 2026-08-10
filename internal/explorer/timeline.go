@@ -13,9 +13,16 @@ func ParseDuration(value string) time.Duration {
 		value = strings.TrimPrefix(value, "pt")
 	}
 	if strings.HasSuffix(value, "d") {
-		days, err := strconv.Atoi(strings.TrimSuffix(value, "d"))
-		if err == nil {
+		daysValue := strings.TrimSuffix(value, "d")
+		days, err := strconv.ParseInt(daysValue, 10, 64)
+		if err == nil && days > 0 {
+			if days > 30 {
+				return 30 * 24 * time.Hour
+			}
 			return time.Duration(days) * 24 * time.Hour
+		}
+		if err != nil && isPositiveDecimal(daysValue) {
+			return 30 * 24 * time.Hour
 		}
 	}
 	parsed, err := time.ParseDuration(value)
@@ -26,6 +33,18 @@ func ParseDuration(value string) time.Duration {
 		return 30 * 24 * time.Hour
 	}
 	return parsed
+}
+
+func isPositiveDecimal(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, character := range value {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func NormalizeTimelineBuckets(value int) int {
@@ -47,6 +66,9 @@ func BuildTimeline(entries []Entry, from, to time.Time, requestedBucketCount int
 		return nil
 	}
 	bucketCount := NormalizeTimelineBuckets(requestedBucketCount)
+	if duration/time.Duration(bucketCount) <= 0 {
+		bucketCount = 1
+	}
 	buckets := make([]TimelineBucket, bucketCount)
 	span := duration / time.Duration(bucketCount)
 	for index := range buckets {
@@ -67,11 +89,14 @@ func BuildTimeline(entries []Entry, from, to time.Time, requestedBucketCount int
 		}
 		buckets[index].Total++
 		severity := entry.Severity
-		if SeverityRank(severity) >= SeverityRank("ERROR") {
+		rank, known := severityRank(severity)
+		if !known {
+			severity = "INFO"
+		} else if rank >= SeverityRank("ERROR") {
 			severity = "ERROR"
-		} else if SeverityRank(severity) >= SeverityRank("WARNING") {
+		} else if rank >= SeverityRank("WARNING") {
 			severity = "WARNING"
-		} else if SeverityRank(severity) <= SeverityRank("DEBUG") {
+		} else if rank <= SeverityRank("DEBUG") {
 			severity = "DEBUG"
 		} else {
 			severity = "INFO"
@@ -100,9 +125,7 @@ func BuildFieldGroups(entries []Entry) []FieldGroup {
 			groups[group][name] = field
 		}
 		field.count++
-		if len(field.values) < 8 {
-			field.values[value]++
-		}
+		field.values[value]++
 	}
 	for _, entry := range entries {
 		add("System Metadata", "severity", entry.Severity)
@@ -119,7 +142,7 @@ func BuildFieldGroups(entries []Entry) []FieldGroup {
 	for _, groupName := range []string{"Pinned", "System Metadata", "Frequent Fields"} {
 		fields := make([]FieldValue, 0)
 		for name, field := range groups[groupName] {
-			fields = append(fields, FieldValue{Name: name, Count: field.count, Values: field.values})
+			fields = append(fields, FieldValue{Name: name, Count: field.count, Values: topFieldValues(field.values, 8)})
 		}
 		sort.Slice(fields, func(i, j int) bool { return fields[i].Count > fields[j].Count })
 		if len(fields) > 10 {
@@ -130,4 +153,29 @@ func BuildFieldGroups(entries []Entry) []FieldGroup {
 		}
 	}
 	return result
+}
+
+func topFieldValues(values map[string]int, limit int) map[string]int {
+	type valueCount struct {
+		value string
+		count int
+	}
+	counts := make([]valueCount, 0, len(values))
+	for value, count := range values {
+		counts = append(counts, valueCount{value: value, count: count})
+	}
+	sort.Slice(counts, func(i, j int) bool {
+		if counts[i].count == counts[j].count {
+			return counts[i].value < counts[j].value
+		}
+		return counts[i].count > counts[j].count
+	})
+	if len(counts) > limit {
+		counts = counts[:limit]
+	}
+	top := make(map[string]int, len(counts))
+	for _, item := range counts {
+		top[item.value] = item.count
+	}
+	return top
 }
