@@ -271,6 +271,17 @@
 	border-radius: 7px 7px 0 0;
 }
 
+.alerts-panel {
+	margin-block-start: 10px;
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: 6px;
+}
+
+.alerts-panel .panel-heading {
+	align-items: center;
+}
+
 .query-panel-header {
 	display: flex;
 	align-items: center;

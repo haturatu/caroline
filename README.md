@@ -18,6 +18,7 @@ The name came from listening to The Velvet Underground's “Caroline” while wo
 - Full-field search and Caroline Query Syntax
 - Timeline, field aggregation, and a log detail drawer
 - Streaming display of new logs over SSE
+- Threshold-based log alerts with optional generic webhooks
 - Share links that preserve the current search
 - Dark and light themes with mobile navigation
 - English, Japanese, Simplified Chinese, Traditional Chinese, and Russian UI
@@ -93,6 +94,12 @@ Edit advanced conditions from **Show Query**. Run an advanced query with **Run Q
 When Streaming is enabled, Caroline opens an SSE connection to `/api/tail` after the initial search and appends new logs to the page. It does not poll every five seconds.
 
 Stopping Streaming closes the SSE connection. Changing filters, the time range, sort order, or query closes the current stream and reconnects from a new search result. If the connection drops, the browser's `EventSource` automatically attempts to reconnect.
+
+### Alerts
+
+Create an alert from the current query with a threshold, time window, cooldown, and optional generic webhook URL. The alert engine consumes the same shared Docker `follow` streams as SSE, so each running container has at most one Caroline-side follow stream regardless of how many alert rules use it.
+
+Rules and their in-memory state are lost when Caroline restarts. Caroline does not store log bodies or matching entries; it only keeps timestamps needed for the active window. A rule transitions between `OK` and `FIRING`, and sends a webhook notification for firing and resolution events when a webhook is configured.
 
 ### Timeline, Fields, and Logs
 
@@ -172,7 +179,7 @@ Pagination uses an opaque `nextPageToken` based on the timestamp and insert ID. 
 
 ## API
 
-All APIs support GET and also accept HEAD requests.
+Read APIs support GET and also accept HEAD requests. Alert rules additionally use POST, PUT/PATCH, and DELETE.
 
 ### `GET /api/health`
 
@@ -224,9 +231,28 @@ Events:
 - `log`: A new log entry, using the same entry shape as `/api/explorer`
 - `warning`: A warning such as the maximum number of Streaming targets
 - `error`: A Streaming error for a specific container
-- `end`: All streams have ended
+- An SSE keep-alive comment is sent every 15 seconds while the connection is open.
 
-An SSE keep-alive comment is sent every 15 seconds while the connection is open.
+The SSE endpoint and alert engine share a `logstream.Manager`; a browser connection does not create another Docker follow stream for a container already watched by Caroline.
+
+### `/api/alerts`
+
+Alert rules are managed in memory. `GET /api/alerts` lists rules, `POST /api/alerts` creates one, `GET` or `PATCH`/`PUT` `/api/alerts/{id}` reads or updates one, and `DELETE /api/alerts/{id}` removes one.
+
+Create a rule with JSON such as:
+
+~~~json
+{
+  "name": "nginx errors",
+  "query": "resource.labels.container_name = \"nginx\" AND severity >= ERROR",
+  "threshold": 5,
+  "windowSeconds": 60,
+  "cooldownSeconds": 600,
+  "webhookUrl": "https://alerts.example.test/caroline"
+}
+~~~
+
+Webhook payloads contain `alert.firing` or `alert.resolved`, the rule name, current match count, threshold, window, timestamp, and a sample entry for firing notifications. Webhook URLs are not returned by the API.
 
 ## Development
 
@@ -243,8 +269,10 @@ go test ./...
 .
 ├── cmd/caroline/        # Go entrypoint
 ├── internal/docker/     # Docker Engine client and log frame processing
-├── internal/explorer/   # Normalization, search, Timeline, and Streaming
-├── internal/httpserver/ # HTTP API, SSE, and static file serving
+├── internal/explorer/   # Normalization, search, Timeline, and filters
+├── internal/logstream/  # Shared Docker follow streams and subscribers
+├── internal/alert/      # In-memory alert engine and webhook notifier
+├── internal/httpserver/ # HTTP API, SSE, alerts, and static file serving
 ├── web/                 # Frontend application
 │   ├── index.html       # Vite application entry
 │   ├── public/          # Optional files copied as-is by Vite

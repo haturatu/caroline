@@ -14,6 +14,7 @@ Caroline は、Docker Engine で現在起動しているコンテナの stdout /
 - 全フィールド検索と Caroline Query Syntax による検索
 - Timeline、Fields 集計、ログ詳細 drawer
 - SSE による新着ログの Streaming 表示
+- しきい値・時間枠・クールダウンに対応したログアラートと汎用 Webhook
 - URL に検索条件を保存する Share Link
 - ダーク / ライトテーマ、モバイル用ナビゲーション
 - Docker Engine への読み取り専用アクセス
@@ -84,6 +85,12 @@ Container、Stream、Severity、Time のプリセット変更は即時に検索�
 Streaming が有効なとき、初回検索後に `/api/tail` へ SSE 接続し、新着ログを画面へ追加します。5 秒間隔のポーリングではありません。
 
 Streaming を停止すると SSE 接続を閉じます。フィルター、時間範囲、sort、クエリを変更した場合は、現在のストリームを閉じて新しい検索結果から再接続します。接続が切れた場合はブラウザの `EventSource` が再接続します。
+
+### Alerts
+
+現在のクエリから、しきい値、時間枠、クールダウン、任意の汎用 Webhook URL を指定してアラートを作成できます。アラートエンジンは SSE と同じ共有 Docker `follow` ストリームを利用するため、複数のルールが同じコンテナを対象にしても Caroline 側の follow ストリームはコンテナごとに 1 本です。
+
+ルールとアラート状態はメモリ上だけに保持され、Caroline を再起動すると失われます。ログ本文や一致したエントリは保存せず、時間枠の集計に必要なタイムスタンプだけを保持します。状態が `OK` と `FIRING` の間で遷移し、Webhook を設定したルールでは発火・解消時に通知します。
 
 ### Timeline / Fields / Logs
 
@@ -163,7 +170,7 @@ severity は Docker が持つ標準属性ではありません。`ERROR`、`FATA
 
 ## API
 
-すべての API は GET に対応し、HEAD も受け付けます。
+読み取り API は GET に対応し、HEAD も受け付けます。アラート API はルールの作成・更新・削除のため POST、PUT / PATCH、DELETE も使用します。
 
 ### `GET /api/health`
 
@@ -219,6 +226,27 @@ curl 'http://localhost:8080/api/explorer?duration=15m&limit=100&q=severity%20%3E
 
 接続中は 15 秒ごとに SSE keep-alive comment を送信します。
 
+SSE エンドポイントとアラートエンジンは `logstream.Manager` を共有します。すでに Caroline が監視しているコンテナへブラウザが接続しても、Docker の follow ストリームを追加で作成しません。
+
+### `/api/alerts`
+
+アラートルールはメモリ上で管理します。`GET /api/alerts` で一覧、`POST /api/alerts` で作成、`GET` または `PATCH` / `PUT /api/alerts/{id}` で取得・更新、`DELETE /api/alerts/{id}` で削除できます。
+
+作成例:
+
+```json
+{
+  "name": "nginx errors",
+  "query": "resource.labels.container_name = \"nginx\" AND severity >= ERROR",
+  "threshold": 5,
+  "windowSeconds": 60,
+  "cooldownSeconds": 600,
+  "webhookUrl": "https://alerts.example.test/caroline"
+}
+```
+
+Webhook payload には `alert.firing` または `alert.resolved`、ルール名、現在の一致数、しきい値、時間枠、時刻、発火時のサンプルエントリが含まれます。Webhook URL 自体は API のレスポンスに含めません。
+
 ## 開発
 
 ```sh
@@ -234,8 +262,10 @@ go test ./...
 .
 ├── cmd/caroline/        # Go のエントリーポイント
 ├── internal/docker/     # Docker Engine クライアントとログフレーム処理
-├── internal/explorer/   # 正規化、検索、Timeline、Streaming
-├── internal/httpserver/ # HTTP API、SSE、静的ファイル配信
+├── internal/explorer/   # 正規化、検索、Timeline、フィルター
+├── internal/logstream/  # 共有 Docker follow ストリームと購読
+├── internal/alert/      # メモリ上のアラートエンジンと Webhook 通知
+├── internal/httpserver/ # HTTP API、SSE、アラート、静的ファイル配信
 ├── web/                 # フロントエンドアプリケーション
 │   ├── index.html       # Vite のアプリケーションエントリ
 │   ├── public/          # Vite がそのままコピーする任意の静的ファイル

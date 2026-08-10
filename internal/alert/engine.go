@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
@@ -12,6 +13,8 @@ import (
 	"caroline/internal/explorer"
 	"caroline/internal/logstream"
 )
+
+var ErrRuleNotFound = errors.New("alert rule was not found")
 
 type Notification struct {
 	Event           string          `json:"event"`
@@ -70,7 +73,7 @@ func (e *Engine) Update(id string, spec RuleSpec) (RuleView, error) {
 	e.mu.Lock()
 	if _, ok := e.rules[id]; !ok {
 		e.mu.Unlock()
-		return RuleView{}, fmt.Errorf("alert rule %q was not found", id)
+		return RuleView{}, fmt.Errorf("%w: %q", ErrRuleNotFound, id)
 	}
 	rule.ID = id
 	e.rules[id] = rule
@@ -84,7 +87,7 @@ func (e *Engine) Delete(id string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if _, ok := e.rules[id]; !ok {
-		return fmt.Errorf("alert rule %q was not found", id)
+		return fmt.Errorf("%w: %q", ErrRuleNotFound, id)
 	}
 	delete(e.rules, id)
 	delete(e.states, id)

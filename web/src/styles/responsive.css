@@ -112,6 +112,11 @@
 	.heading-actions {
 		inline-size: 100%;
 		justify-content: flex-end;
+		flex-wrap: wrap;
+	}
+
+	.alert-number-grid {
+		grid-template-columns: 1fr;
 	}
 
 	.results-header {
