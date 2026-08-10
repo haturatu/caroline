@@ -4,9 +4,14 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,7 +19,12 @@ import (
 	"caroline/internal/logstream"
 )
 
-var ErrRuleNotFound = errors.New("alert rule was not found")
+var (
+	ErrRuleNotFound = errors.New("alert rule was not found")
+	ErrPersistence  = errors.New("alert persistence failed")
+)
+
+const alertStoreVersion = 1
 
 type Notification struct {
 	Event           string          `json:"event"`
@@ -34,6 +44,7 @@ type Notifier interface {
 type Engine struct {
 	streams  *logstream.Manager
 	notifier Notifier
+	store    string
 
 	mu     sync.RWMutex
 	rules  map[string]Rule
@@ -41,9 +52,25 @@ type Engine struct {
 }
 
 func NewEngine(streams *logstream.Manager, notifier Notifier) *Engine {
+	return newEngine(streams, notifier, "")
+}
+
+func NewEngineWithPersistence(streams *logstream.Manager, notifier Notifier, path string) (*Engine, error) {
+	engine := newEngine(streams, notifier, strings.TrimSpace(path))
+	if engine.store == "" {
+		return engine, nil
+	}
+	if err := engine.load(); err != nil {
+		return nil, fmt.Errorf("load alert store: %w", err)
+	}
+	return engine, nil
+}
+
+func newEngine(streams *logstream.Manager, notifier Notifier, store string) *Engine {
 	return &Engine{
 		streams:  streams,
 		notifier: notifier,
+		store:    store,
 		rules:    make(map[string]Rule),
 		states:   make(map[string]RuleState),
 	}
@@ -60,6 +87,12 @@ func (e *Engine) Create(spec RuleSpec) (RuleView, error) {
 	e.rules[rule.ID] = rule
 	e.states[rule.ID] = RuleState{Status: StatusOK, UpdatedAt: now}
 	view := rule.view(e.states[rule.ID], now)
+	if err := e.saveLocked(); err != nil {
+		delete(e.rules, rule.ID)
+		delete(e.states, rule.ID)
+		e.mu.Unlock()
+		return RuleView{}, fmt.Errorf("%w: %v", ErrPersistence, err)
+	}
 	e.mu.Unlock()
 	return view, nil
 }
@@ -75,10 +108,18 @@ func (e *Engine) Update(id string, spec RuleSpec) (RuleView, error) {
 		e.mu.Unlock()
 		return RuleView{}, fmt.Errorf("%w: %q", ErrRuleNotFound, id)
 	}
+	previousRule := e.rules[id]
+	previousState := e.states[id]
 	rule.ID = id
 	e.rules[id] = rule
 	e.states[id] = RuleState{Status: StatusOK, UpdatedAt: now}
 	view := rule.view(e.states[id], now)
+	if err := e.saveLocked(); err != nil {
+		e.rules[id] = previousRule
+		e.states[id] = previousState
+		e.mu.Unlock()
+		return RuleView{}, fmt.Errorf("%w: %v", ErrPersistence, err)
+	}
 	e.mu.Unlock()
 	return view, nil
 }
@@ -89,8 +130,15 @@ func (e *Engine) Delete(id string) error {
 	if _, ok := e.rules[id]; !ok {
 		return fmt.Errorf("%w: %q", ErrRuleNotFound, id)
 	}
+	previousRule := e.rules[id]
+	previousState := e.states[id]
 	delete(e.rules, id)
 	delete(e.states, id)
+	if err := e.saveLocked(); err != nil {
+		e.rules[id] = previousRule
+		e.states[id] = previousState
+		return fmt.Errorf("%w: %v", ErrPersistence, err)
+	}
 	return nil
 }
 
@@ -172,6 +220,7 @@ func (e *Engine) processEntry(ctx context.Context, entry explorer.Entry) {
 		rule Rule
 		item Notification
 	}, 0)
+	changed := false
 	e.mu.Lock()
 	for id, rule := range e.rules {
 		if !rule.Enabled || !matchesRule(entry, rule) {
@@ -180,6 +229,7 @@ func (e *Engine) processEntry(ctx context.Context, entry explorer.Entry) {
 		state := e.states[id]
 		state.Matches = append(trimMatches(state.Matches, now.Add(-rule.window())), now)
 		state.UpdatedAt = now
+		changed = true
 		if len(state.Matches) >= rule.Threshold {
 			if state.Status != StatusFiring {
 				state.Status = StatusFiring
@@ -195,6 +245,11 @@ func (e *Engine) processEntry(ctx context.Context, entry explorer.Entry) {
 		}
 		e.states[id] = state
 	}
+	if changed {
+		if err := e.saveLocked(); err != nil {
+			log.Printf("alert persistence failed: %v", err)
+		}
+	}
 	e.mu.Unlock()
 	e.notify(ctx, notifications)
 }
@@ -205,19 +260,30 @@ func (e *Engine) resolve(ctx context.Context) {
 		rule Rule
 		item Notification
 	}, 0)
+	changed := false
 	e.mu.Lock()
 	for id, rule := range e.rules {
 		state := e.states[id]
+		previousMatches := len(state.Matches)
 		state.Matches = trimMatches(state.Matches, now.Add(-rule.window()))
+		if len(state.Matches) != previousMatches {
+			changed = true
+		}
 		if state.Status == StatusFiring && len(state.Matches) < rule.Threshold {
 			state.Status = StatusOK
 			state.UpdatedAt = now
+			changed = true
 			notifications = append(notifications, struct {
 				rule Rule
 				item Notification
 			}{rule: rule, item: notificationFor(rule, "alert.resolved", len(state.Matches), now, nil)})
 		}
 		e.states[id] = state
+	}
+	if changed {
+		if err := e.saveLocked(); err != nil {
+			log.Printf("alert persistence failed: %v", err)
+		}
 	}
 	e.mu.Unlock()
 	e.notify(ctx, notifications)
@@ -267,4 +333,147 @@ func newRuleID() string {
 		return "rule-" + hex.EncodeToString(randomBytes)
 	}
 	return fmt.Sprintf("rule-%d", time.Now().UnixNano())
+}
+
+type alertStore struct {
+	Version int                  `json:"version"`
+	Rules   []storedRule         `json:"rules"`
+	States  map[string]RuleState `json:"states"`
+}
+
+type storedRule struct {
+	ID              string `json:"id"`
+	Name            string `json:"name"`
+	Query           string `json:"query"`
+	Threshold       int    `json:"threshold"`
+	WindowSeconds   int    `json:"windowSeconds"`
+	CooldownSeconds int    `json:"cooldownSeconds"`
+	Enabled         bool   `json:"enabled"`
+	WebhookURL      string `json:"webhookUrl"`
+}
+
+func (e *Engine) load() error {
+	file, err := os.Open(e.store)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("open %q: %w", e.store, err)
+	}
+	defer file.Close()
+
+	var store alertStore
+	decoder := json.NewDecoder(file)
+	if err := decoder.Decode(&store); err != nil {
+		return fmt.Errorf("decode %q: %w", e.store, err)
+	}
+	if store.Version != alertStoreVersion {
+		return fmt.Errorf("unsupported alert store version %d", store.Version)
+	}
+
+	now := time.Now().UTC()
+	for _, saved := range store.Rules {
+		if saved.ID == "" {
+			return errors.New("alert store contains a rule without an id")
+		}
+		enabled := saved.Enabled
+		rule, err := normalizeSpec(RuleSpec{
+			Name:            saved.Name,
+			Query:           saved.Query,
+			Threshold:       saved.Threshold,
+			WindowSeconds:   saved.WindowSeconds,
+			CooldownSeconds: saved.CooldownSeconds,
+			Enabled:         &enabled,
+			WebhookURL:      saved.WebhookURL,
+		})
+		if err != nil {
+			return fmt.Errorf("validate rule %q: %w", saved.ID, err)
+		}
+		if _, exists := e.rules[saved.ID]; exists {
+			return fmt.Errorf("alert store contains duplicate rule id %q", saved.ID)
+		}
+		rule.ID = saved.ID
+		state := store.States[saved.ID]
+		if state.Status == "" {
+			state.Status = StatusOK
+		}
+		if state.Status != StatusOK && state.Status != StatusFiring {
+			return fmt.Errorf("alert store contains invalid status %q for rule %q", state.Status, saved.ID)
+		}
+		state.Matches = trimMatches(state.Matches, now.Add(-rule.window()))
+		if state.Status == StatusFiring && len(state.Matches) < rule.Threshold {
+			state.Status = StatusOK
+		}
+		if state.UpdatedAt.IsZero() {
+			state.UpdatedAt = now
+		}
+		e.rules[saved.ID] = rule
+		e.states[saved.ID] = state
+	}
+	return nil
+}
+
+func (e *Engine) saveLocked() error {
+	if e.store == "" {
+		return nil
+	}
+
+	ids := make([]string, 0, len(e.rules))
+	for id := range e.rules {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	store := alertStore{
+		Version: alertStoreVersion,
+		Rules:   make([]storedRule, 0, len(ids)),
+		States:  make(map[string]RuleState, len(ids)),
+	}
+	for _, id := range ids {
+		rule := e.rules[id]
+		store.Rules = append(store.Rules, storedRule{
+			ID:              rule.ID,
+			Name:            rule.Name,
+			Query:           rule.Query,
+			Threshold:       rule.Threshold,
+			WindowSeconds:   rule.WindowSeconds,
+			CooldownSeconds: rule.CooldownSeconds,
+			Enabled:         rule.Enabled,
+			WebhookURL:      rule.WebhookURL,
+		})
+		state := e.states[id]
+		state.Matches = append([]time.Time(nil), state.Matches...)
+		store.States[id] = state
+	}
+
+	directory := filepath.Dir(e.store)
+	if err := os.MkdirAll(directory, 0o750); err != nil {
+		return fmt.Errorf("create alert store directory: %w", err)
+	}
+	temporary, err := os.CreateTemp(directory, "."+filepath.Base(e.store)+".tmp-*")
+	if err != nil {
+		return fmt.Errorf("create temporary alert store: %w", err)
+	}
+	temporaryName := temporary.Name()
+	defer func() {
+		_ = temporary.Close()
+		_ = os.Remove(temporaryName)
+	}()
+	if err := temporary.Chmod(0o600); err != nil {
+		return fmt.Errorf("set alert store permissions: %w", err)
+	}
+	encoder := json.NewEncoder(temporary)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(store); err != nil {
+		return fmt.Errorf("encode alert store: %w", err)
+	}
+	if err := temporary.Sync(); err != nil {
+		return fmt.Errorf("sync alert store: %w", err)
+	}
+	if err := temporary.Close(); err != nil {
+		return fmt.Errorf("close alert store: %w", err)
+	}
+	if err := os.Rename(temporaryName, e.store); err != nil {
+		return fmt.Errorf("replace alert store: %w", err)
+	}
+	return nil
 }

@@ -59,6 +59,7 @@ go run ./cmd/caroline
 | --- | --- | --- |
 | `PORT` | `8080` | Web サーバーの待受ポート |
 | `DOCKER_HOST` | `unix:///var/run/docker.sock` | Docker Engine の接続先 |
+| `ALERTS_FILE` | `alerts.json` | アラートのJSON保存先 |
 
 `DOCKER_HOST` は `unix://`、`tcp://`、`http://`、`https://` の形式に対応しています。TCP / HTTP 接続を使う場合は、Docker Engine 側の認証・TLS・ネットワーク制御を別途設定してください。
 
@@ -90,7 +91,7 @@ Streaming を停止すると SSE 接続を閉じます。フィルター、時�
 
 現在のクエリから、しきい値、時間枠、クールダウン、任意の Webhook URL を指定してアラートを作成できます。Discord Incoming Webhook（`https://discord.com/api/webhooks/...`）を指定した場合は、Discord の `embeds` 形式で通知します。その他の URL には従来の汎用 JSON payload を送信します。アラートエンジンは SSE と同じ共有 Docker `follow` ストリームを利用するため、複数のルールが同じコンテナを対象にしても Caroline 側の follow ストリームはコンテナごとに 1 本です。
 
-ルールとアラート状態はメモリ上だけに保持され、Caroline を再起動すると失われます。ログ本文や一致したエントリは保存せず、時間枠の集計に必要なタイムスタンプだけを保持します。状態が `OK` と `FIRING` の間で遷移し、Webhook を設定したルールでは発火・解消時に通知します。
+ルールとアラート状態は `ALERTS_FILE` のJSONファイルへ保存され、起動時に復元されます。ログ本文や一致したエントリ自体は保存せず、時間枠の集計に必要なタイムスタンプだけを保持します。状態が `OK` と `FIRING` の間で遷移し、Webhook を設定したルールでは発火・解消時に通知します。Docker Composeでは `caroline-data` volume に保存されます。
 
 ### Timeline / Fields / Logs
 
@@ -230,7 +231,7 @@ SSE エンドポイントとアラートエンジンは `logstream.Manager` を�
 
 ### `/api/alerts`
 
-アラートルールはメモリ上で管理します。`GET /api/alerts` で一覧、`POST /api/alerts` で作成、`GET` または `PATCH` / `PUT /api/alerts/{id}` で取得・更新、`DELETE /api/alerts/{id}` で削除できます。
+アラートルールは `ALERTS_FILE` で指定したJSONファイルで管理します。`GET /api/alerts` で一覧、`POST /api/alerts` で作成、`GET` または `PATCH` / `PUT /api/alerts/{id}` で取得・更新、`DELETE /api/alerts/{id}` で削除できます。Webhook URLを含むため、保存ファイルには `0600` の権限が設定されます。
 
 作成例:
 
@@ -266,7 +267,7 @@ go test ./...
 ├── internal/docker/     # Docker Engine クライアントとログフレーム処理
 ├── internal/explorer/   # 正規化、検索、Timeline、フィルター
 ├── internal/logstream/  # 共有 Docker follow ストリームと購読
-├── internal/alert/      # メモリ上のアラートエンジンと Webhook 通知
+├── internal/alert/      # JSON永続化対応のアラートエンジンと Webhook 通知
 ├── internal/httpserver/ # HTTP API、SSE、アラート、静的ファイル配信
 ├── web/                 # フロントエンドアプリケーション
 │   ├── index.html       # Vite のアプリケーションエントリ
@@ -286,6 +287,6 @@ go test ./...
 
 認証・認可機能はありません。Docker socket へのアクセス権を持つアプリとして動作するため、8080 番ポートは信頼できるローカルネットワーク内だけで公開してください。TCP の Docker Engine を使う場合は、Caroline の外側で TLS、認証、ファイアウォールを設定してください。
 
-ログ本文や検索結果は Caroline に保存されません。各リクエストで Docker Engine から読み取り、ブラウザ内の状態として表示します。
+ログ本文や検索結果は Caroline に保存されません。各リクエストで Docker Engine から読み取り、ブラウザ内の状態として表示します。アラートの設定と集計用タイムスタンプは `ALERTS_FILE` に保存されます。
 
 UI は IBM Plex Sans、ログ本文・timestamp・query editor・container ID・field 名などの等幅表示は IBM Plex Mono を使用します。Google Fonts が利用できない場合はシステムフォントへフォールバックします。Container Queries、`subgrid`、CSS Nesting、`dvh`、`light-dark()` などを使用しているため、比較的最新のブラウザで利用してください。

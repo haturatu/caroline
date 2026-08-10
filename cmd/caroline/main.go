@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"strings"
 
 	"caroline/internal/alert"
 	"caroline/internal/alert/notifier"
@@ -20,7 +21,14 @@ func main() {
 	explorerService := explorer.NewService(dockerClient)
 	streamManager := logstream.NewManager(dockerClient)
 	defer streamManager.Close()
-	alertEngine := alert.NewEngine(streamManager, notifier.Webhook{})
+	alertStore := strings.TrimSpace(os.Getenv("ALERTS_FILE"))
+	if alertStore == "" {
+		alertStore = "alerts.json"
+	}
+	alertEngine, err := alert.NewEngineWithPersistence(streamManager, notifier.Webhook{}, alertStore)
+	if err != nil {
+		log.Fatalf("load alert store %q: %v", alertStore, err)
+	}
 	alertContext, cancelAlerts := context.WithCancel(context.Background())
 	defer cancelAlerts()
 	go func() {
