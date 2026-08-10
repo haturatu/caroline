@@ -18,7 +18,7 @@ The name came from listening to The Velvet Underground's “Caroline” while wo
 - Full-field search and Caroline Query Syntax
 - Timeline, field aggregation, and a log detail drawer
 - Streaming display of new logs over SSE
-- Threshold-based log alerts with optional generic webhooks
+- Threshold-based log alerts with optional generic webhooks (including Discord Incoming Webhooks)
 - Share links that preserve the current search
 - Dark and light themes with mobile navigation
 - English, Japanese, Simplified Chinese, Traditional Chinese, and Russian UI
@@ -97,7 +97,7 @@ Stopping Streaming closes the SSE connection. Changing filters, the time range, 
 
 ### Alerts
 
-Create an alert from the current query with a threshold, time window, cooldown, and optional generic webhook URL. The alert engine consumes the same shared Docker `follow` streams as SSE, so each running container has at most one Caroline-side follow stream regardless of how many alert rules use it.
+Create an alert from the current query with a threshold, time window, cooldown, and optional webhook URL. Discord Incoming Webhook URLs (`https://discord.com/api/webhooks/...`) are sent using Discord's `embeds` payload format; other URLs receive the generic JSON payload. The alert engine consumes the same shared Docker `follow` streams as SSE, so each running container has at most one Caroline-side follow stream regardless of how many alert rules use it.
 
 Rules and their in-memory state are lost when Caroline restarts. Caroline does not store log bodies or matching entries; it only keeps timestamps needed for the active window. A rule transitions between `OK` and `FIRING`, and sends a webhook notification for firing and resolution events when a webhook is configured.
 
@@ -253,6 +253,8 @@ Create a rule with JSON such as:
 ~~~
 
 Webhook payloads contain `alert.firing` or `alert.resolved`, the rule name, current match count, threshold, window, timestamp, and a sample entry for firing notifications. Webhook URLs are not returned by the API.
+
+Discord Incoming Webhooks follow Discord's [Execute Webhook](https://docs.discord.com/developers/resources/webhook#execute-webhook) format, including an `embeds` message and `allowed_mentions: {"parse": []}`. Caroline also sends `wait=true` so Discord confirms message creation.
 
 ## Development
 
