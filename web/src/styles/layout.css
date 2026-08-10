@@ -266,6 +266,7 @@
 }
 
 .query-panel {
+	container: query-panel / inline-size;
 	border: 1px solid var(--border);
 	border-radius: 7px 7px 0 0;
 }
