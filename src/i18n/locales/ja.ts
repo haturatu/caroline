@@ -181,6 +181,7 @@ export const ja = {
 		stream: "ストリーム",
 		copyEntry: "エントリ JSON をコピー",
 		copied: "エントリ JSON をコピーしました。",
+		copyFailed: "コピーに失敗しました。ブラウザの権限を確認してください。",
 	},
 	errors: {
 		requestFailed: "リクエストに失敗しました ({status})",

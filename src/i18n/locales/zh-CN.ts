@@ -180,6 +180,7 @@ export const zhCN = {
 		stream: "流",
 		copyEntry: "复制记录 JSON",
 		copied: "已复制记录 JSON。",
+		copyFailed: "复制失败，请检查浏览器权限。",
 	},
 	errors: {
 		requestFailed: "请求失败 ({status})",

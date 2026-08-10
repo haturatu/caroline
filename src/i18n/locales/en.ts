@@ -182,6 +182,7 @@ export const en = {
 		stream: "Stream",
 		copyEntry: "Copy Entry JSON",
 		copied: "Entry JSON copied.",
+		copyFailed: "Copy failed. Check your browser permissions.",
 	},
 	errors: {
 		requestFailed: "Request failed ({status})",

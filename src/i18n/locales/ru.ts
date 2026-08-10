@@ -187,6 +187,7 @@ export const ru = {
 		stream: "Поток",
 		copyEntry: "Копировать JSON записи",
 		copied: "JSON записи скопирован.",
+		copyFailed: "Не удалось скопировать. Проверьте разрешения браузера.",
 	},
 	errors: {
 		requestFailed: "Запрос не выполнен ({status})",

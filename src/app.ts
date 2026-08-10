@@ -9,6 +9,7 @@ import {
 	syncURL,
 } from "./api.js";
 import { $$, $, escapeHTML } from "./dom.js";
+import { copyText } from "./clipboard.js";
 import { errorText } from "./format.js";
 import {
 	getLocale,
@@ -834,9 +835,9 @@ function setupEvents(): void {
 		if (action === "hour") setOneHourRange();
 	});
 	$("#shareButton").addEventListener("click", () => {
-		const copy = navigator.clipboard?.writeText(window.location.href);
-		if (copy) void copy.then(() => toast(t("common.linkCopied")));
-		else toast(t("errors.copyCurrentURL"));
+		void copyText(window.location.href).then((copied) =>
+			toast(copied ? t("common.linkCopied") : t("detail.copyFailed")),
+		);
 	});
 	$("#queryHelpButton").addEventListener("click", () => {
 		const button = $("#queryHelpButton");
