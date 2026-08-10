@@ -517,6 +517,153 @@
 	font-weight: 400;
 }
 
+.alerts-empty {
+	margin: 0;
+	padding: 14px 12px;
+	color: var(--muted);
+	font-size: 11px;
+}
+
+.alert-card {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 12px;
+	border-top: 1px solid var(--border);
+}
+
+.alert-card-main {
+	min-inline-size: 0;
+}
+
+.alert-card-title-row {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+	gap: 8px;
+}
+
+.alert-card h3 {
+	margin: 0;
+	font-size: 12px;
+	font-weight: 500;
+}
+
+.alert-status {
+	padding: 2px 6px;
+	border-radius: 999px;
+	font-size: 10px;
+	font-weight: 600;
+	text-transform: uppercase;
+}
+
+.alert-status-ok {
+	color: var(--green);
+	background: var(--green-soft);
+}
+
+.alert-status-firing {
+	color: var(--red);
+	background: var(--red-soft);
+}
+
+.alert-query,
+.alert-query-preview {
+	display: block;
+	margin-block-start: 7px;
+	padding: 5px 7px;
+	overflow: auto;
+	color: var(--muted);
+	background: var(--surface-soft);
+	border: 1px solid var(--border);
+	font: 10px / 1.4 var(--mono);
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.alert-card-meta {
+	margin: 7px 0 0;
+	color: var(--faint);
+	font-size: 10px;
+}
+
+.alert-dialog {
+	inline-size: min(520px, calc(100vw - 32px));
+	max-block-size: calc(100dvh - 32px);
+	margin: auto;
+	padding: 0;
+	color: var(--text);
+	background: var(--surface-soft);
+	border: 1px solid var(--border-strong);
+	border-radius: 8px;
+	box-shadow: 0 16px 48px var(--shadow);
+}
+
+.alert-dialog::backdrop {
+	background: rgb(0 0 0 / 48%);
+	backdrop-filter: blur(2px);
+}
+
+.alert-dialog form {
+	display: grid;
+	gap: 14px;
+	padding: 18px;
+}
+
+.dialog-heading,
+.dialog-actions {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+}
+
+.dialog-heading {
+	padding-block-end: 4px;
+	border-block-end: 1px solid var(--border);
+}
+
+.dialog-heading h2 {
+	margin: 4px 0 0;
+	font-size: 16px;
+	font-weight: 500;
+}
+
+.alert-field {
+	display: grid;
+	gap: 5px;
+	color: var(--muted);
+	font-size: 10px;
+}
+
+.alert-field input {
+	inline-size: 100%;
+	min-block-size: 34px;
+	padding: 7px 9px;
+	color: var(--text);
+	background: var(--surface);
+	border: 1px solid var(--border-strong);
+	border-radius: 4px;
+	font: 12px var(--sans);
+}
+
+.alert-field input:focus {
+	border-color: var(--blue);
+	box-shadow: 0 0 0 1px var(--blue);
+}
+
+.alert-number-grid {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 8px;
+}
+
+.dialog-actions {
+	justify-content: flex-end;
+	padding-block-start: 4px;
+}
+
 .fields-collapsed .panel-heading {
 	align-items: center;
 	flex-direction: column;

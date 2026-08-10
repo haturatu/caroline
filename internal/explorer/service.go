@@ -2,7 +2,6 @@ package explorer
 
 import (
 	"context"
-	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -77,7 +76,7 @@ func (s *Service) Search(ctx context.Context, request SearchRequest) (Response, 
 					if entry.Timestamp.Before(request.From) || entry.Timestamp.After(request.To) {
 						continue
 					}
-					if !matchesFilters(entry, request.Query, request.Severity, request.Stream) {
+					if !MatchesFilters(entry, request.Query, request.Severity, request.Stream) {
 						continue
 					}
 					entries = append(entries, entry)
@@ -172,98 +171,7 @@ func (s *Service) Search(ctx context.Context, request SearchRequest) (Response, 
 	return response, nil
 }
 
-func (s *Service) Tail(ctx context.Context, request TailRequest, emit func(StreamEvent) error) error {
-	listContext, cancel := context.WithTimeout(ctx, 5*time.Second)
-	containers, err := s.docker.ListRunning(listContext)
-	cancel()
-	if err != nil {
-		return err
-	}
-
-	selectedContainers := make([]docker.Container, 0, len(containers))
-	for _, container := range containers {
-		if len(request.Selected) == 0 || MatchesContainerSelection(container, request.Selected) {
-			selectedContainers = append(selectedContainers, container)
-		}
-	}
-	sort.Slice(selectedContainers, func(i, j int) bool {
-		return ContainerName(selectedContainers[i]) < ContainerName(selectedContainers[j])
-	})
-
-	streamedContainers := selectedContainers
-	if len(streamedContainers) > MaxTailStreams {
-		streamedContainers = streamedContainers[:MaxTailStreams]
-	}
-	if err := emit(StreamEvent{
-		Name: "ready",
-		Data: map[string]any{
-			"since":              request.Since,
-			"generatedAt":        time.Now().UTC(),
-			"selectedContainers": len(selectedContainers),
-			"streamedContainers": len(streamedContainers),
-		},
-	}); err != nil {
-		return err
-	}
-	if len(streamedContainers) < len(selectedContainers) {
-		if err := emit(StreamEvent{
-			Name: "warning",
-			Data: map[string]any{
-				"message":   fmt.Sprintf("Live tail is limited to %d containers.", MaxTailStreams),
-				"streamed":  len(streamedContainers),
-				"requested": len(selectedContainers),
-			},
-		}); err != nil {
-			return err
-		}
-	}
-
-	if len(streamedContainers) == 0 {
-		<-ctx.Done()
-		return nil
-	}
-
-	var wait sync.WaitGroup
-	for _, container := range streamedContainers {
-		container := container
-		wait.Add(1)
-		go func() {
-			defer wait.Done()
-			followErr := s.docker.FollowLogs(ctx, container.ID, request.Since, func(frame docker.Frame) error {
-				for _, line := range ParseLogFrame(frame, container) {
-					if line.Timestamp.Before(request.Since) {
-						continue
-					}
-					entry := ToEntry(line, container)
-					if !matchesFilters(entry, request.Query, request.Severity, request.Stream) {
-						continue
-					}
-					if err := emit(StreamEvent{Name: "log", Data: entry}); err != nil {
-						return err
-					}
-				}
-				return nil
-			})
-			if followErr != nil && ctx.Err() == nil {
-				_ = emit(StreamEvent{
-					Name: "error",
-					Data: map[string]string{
-						"container": ContainerName(container),
-						"message":   followErr.Error(),
-					},
-				})
-			}
-		}()
-	}
-
-	wait.Wait()
-	if ctx.Err() != nil {
-		return nil
-	}
-	return emit(StreamEvent{Name: "end", Data: map[string]string{"reason": "all streams closed"}})
-}
-
-func matchesFilters(entry Entry, query, severity, stream string) bool {
+func MatchesFilters(entry Entry, query, severity, stream string) bool {
 	return (severity == "" || severity == "ALL" || strings.EqualFold(entry.Severity, severity)) &&
 		(stream == "" || entry.Stream == stream) &&
 		MatchesQuery(entry, query)

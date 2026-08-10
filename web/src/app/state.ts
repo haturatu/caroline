@@ -30,4 +30,5 @@ export const state: AppState = {
 	navExpanded: false,
 	errors: { status: "", explorer: "" },
 	errorDetails: [],
+	alerts: { rules: [], loading: false, error: "" },
 };
