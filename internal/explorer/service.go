@@ -77,7 +77,7 @@ func (s *Service) Search(ctx context.Context, request SearchRequest) (Response, 
 					if entry.Timestamp.Before(request.From) || entry.Timestamp.After(request.To) {
 						continue
 					}
-					if !matchesFilters(entry, request.Query, request.Severity, request.Stream) {
+					if !MatchesFilters(entry, request.Query, request.Severity, request.Stream) {
 						continue
 					}
 					entries = append(entries, entry)
@@ -235,7 +235,7 @@ func (s *Service) Tail(ctx context.Context, request TailRequest, emit func(Strea
 						continue
 					}
 					entry := ToEntry(line, container)
-					if !matchesFilters(entry, request.Query, request.Severity, request.Stream) {
+					if !MatchesFilters(entry, request.Query, request.Severity, request.Stream) {
 						continue
 					}
 					if err := emit(StreamEvent{Name: "log", Data: entry}); err != nil {
@@ -263,7 +263,7 @@ func (s *Service) Tail(ctx context.Context, request TailRequest, emit func(Strea
 	return emit(StreamEvent{Name: "end", Data: map[string]string{"reason": "all streams closed"}})
 }
 
-func matchesFilters(entry Entry, query, severity, stream string) bool {
+func MatchesFilters(entry Entry, query, severity, stream string) bool {
 	return (severity == "" || severity == "ALL" || strings.EqualFold(entry.Severity, severity)) &&
 		(stream == "" || entry.Stream == stream) &&
 		MatchesQuery(entry, query)
