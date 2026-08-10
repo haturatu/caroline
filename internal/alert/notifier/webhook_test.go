@@ -172,6 +172,54 @@ func TestWebhookNotifyUsesNtfyPayload(t *testing.T) {
 	}
 }
 
+func TestWebhookNotifyUsesTeamsAdaptiveCard(t *testing.T) {
+	var request *http.Request
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		request = r
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Body:       io.NopCloser(strings.NewReader(`{}`)),
+			Header:     make(http.Header),
+			Request:    r,
+		}, nil
+	})}
+
+	err := (Webhook{Client: client, ExplorerBaseURL: "https://caroline.example.test"}).Notify(context.Background(), alert.Rule{
+		WebhookURL: "https://prod-00.japaneast.logic.azure.com/workflows/workflow-id/triggers/manual/paths/invoke?api-version=2016-10-01",
+		RunbookURL: "https://wiki.example.test/runbooks/api-errors",
+	}, testNotification())
+	if err != nil {
+		t.Fatalf("Notify returned error: %v", err)
+	}
+	if request == nil {
+		t.Fatal("Teams request was not sent")
+	}
+	if got := request.Header.Get("Content-Type"); got != "application/json" {
+		t.Fatalf("Teams request Content-Type = %q", got)
+	}
+	var payload teamsPayload
+	if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode Teams payload: %v", err)
+	}
+	if payload.Type != "message" || len(payload.Attachments) != 1 {
+		t.Fatalf("unexpected Teams payload envelope: %#v", payload)
+	}
+	attachment := payload.Attachments[0]
+	if attachment.ContentType != "application/vnd.microsoft.card.adaptive" || attachment.ContentURL != nil {
+		t.Fatalf("unexpected Teams attachment: %#v", attachment)
+	}
+	if attachment.Content.Type != "AdaptiveCard" || attachment.Content.Version != "1.2" {
+		t.Fatalf("unexpected Teams card: %#v", attachment.Content)
+	}
+	if len(attachment.Content.Body) < 2 || attachment.Content.Body[0].Text != "🔴 FIRING · API errors" || attachment.Content.Body[1].Type != "FactSet" {
+		t.Fatalf("unexpected Teams card body: %#v", attachment.Content.Body)
+	}
+	if len(attachment.Content.Actions) != 2 || attachment.Content.Actions[0].Type != "Action.OpenUrl" {
+		t.Fatalf("unexpected Teams card actions: %#v", attachment.Content.Actions)
+	}
+}
+
 func TestIsDiscordWebhookURL(t *testing.T) {
 	for _, test := range []struct {
 		name string
@@ -200,6 +248,8 @@ func TestDetectWebhookProvider(t *testing.T) {
 		{name: "discord", url: "https://discord.com/api/webhooks/123/token", provider: providerDiscord},
 		{name: "slack", url: "https://hooks.slack.com/services/T000/B000/token", provider: providerSlack},
 		{name: "ntfy", url: "https://ntfy.sh/caroline-alerts", provider: providerNtfy},
+		{name: "teams legacy", url: "https://prod-00.japaneast.logic.azure.com/workflows/id/triggers/manual/paths/invoke", provider: providerTeams},
+		{name: "teams power platform", url: "https://environment.api.powerplatform.com:443/powerautomate/automations/direct/id/triggers/manual/paths/invoke", provider: providerTeams},
 		{name: "generic", url: "https://alerts.example.test/caroline", provider: providerGeneric},
 		{name: "insecure discord", url: "http://discord.com/api/webhooks/123/token", provider: providerGeneric},
 	} {

@@ -27,6 +27,7 @@ const (
 	providerDiscord webhookProvider = "discord"
 	providerSlack   webhookProvider = "slack"
 	providerNtfy    webhookProvider = "ntfy"
+	providerTeams   webhookProvider = "teams"
 )
 
 func (w Webhook) Notify(ctx context.Context, rule alert.Rule, notification alert.Notification) error {
@@ -58,6 +59,8 @@ func (w Webhook) Notify(ctx context.Context, rule alert.Rule, notification alert
 	case providerNtfy:
 		body = []byte(ntfyMessage(notification))
 		headers = ntfyHeaders(notification)
+	case providerTeams:
+		body, err = json.Marshal(buildTeamsPayload(notification))
 	case providerGeneric:
 		body, err = json.Marshal(notification)
 	}
@@ -331,6 +334,15 @@ func detectWebhookProvider(raw string) webhookProvider {
 		if strings.Trim(path, "/") != "" {
 			return providerNtfy
 		}
+	}
+	if strings.HasSuffix(host, ".logic.azure.com") &&
+		strings.Contains(path, "/workflows/") &&
+		strings.Contains(path, "/triggers/") &&
+		strings.Contains(path, "/paths/invoke") {
+		return providerTeams
+	}
+	if strings.HasSuffix(host, ".api.powerplatform.com") && strings.Contains(path, "/powerautomate") {
+		return providerTeams
 	}
 	return providerGeneric
 }
