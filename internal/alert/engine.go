@@ -24,11 +24,7 @@ var (
 	ErrPersistence  = errors.New("alert persistence failed")
 )
 
-const (
-	alertStoreVersion         = 3
-	legacyAlertStoreVersion   = 1
-	previousAlertStoreVersion = 2
-)
+const alertStoreVersion = 3
 
 type Notification struct {
 	Event           string            `json:"event"`
@@ -419,7 +415,7 @@ func (e *Engine) load() error {
 	if err := decoder.Decode(&store); err != nil {
 		return fmt.Errorf("decode %q: %w", e.store, err)
 	}
-	if store.Version != legacyAlertStoreVersion && store.Version != previousAlertStoreVersion && store.Version != alertStoreVersion {
+	if store.Version != alertStoreVersion {
 		return fmt.Errorf("unsupported alert store version %d", store.Version)
 	}
 
@@ -453,11 +449,6 @@ func (e *Engine) load() error {
 		if state.Status == "" {
 			state.Status = StatusOK
 		}
-		if store.Version == legacyAlertStoreVersion && state.Status == StatusFiring {
-			// Version 1 did not persist whether the firing notification was
-			// sent. Treat an active legacy rule as notified during migration.
-			state.FiringNotificationSent = true
-		}
 		if state.Status != StatusOK && state.Status != StatusFiring {
 			return fmt.Errorf("alert store contains invalid status %q for rule %q", state.Status, saved.ID)
 		}
@@ -468,18 +459,6 @@ func (e *Engine) load() error {
 			state.PeakMatches = 0
 			state.Container = ""
 			state.FiringNotificationSent = false
-		}
-		if state.Status == StatusFiring {
-			if state.FiringSince == nil {
-				candidate := state.LastFiredAt
-				if candidate == nil && !state.UpdatedAt.IsZero() {
-					candidate = &state.UpdatedAt
-				}
-				state.FiringSince = cloneTime(candidate)
-			}
-			if state.PeakMatches < len(state.Matches) {
-				state.PeakMatches = len(state.Matches)
-			}
 		}
 		if state.UpdatedAt.IsZero() {
 			state.UpdatedAt = now
