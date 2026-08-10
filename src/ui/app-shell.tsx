@@ -1,5 +1,5 @@
 // biome-ignore lint/correctness/noUnusedImports: TypeScript JSX factory imports are compiler inputs.
-import { Fragment, h, type Child } from "./jsx-runtime.js";
+import { Fragment, h, type Child } from "./jsx-runtime";
 
 export function AppShell(): Node {
 	return (

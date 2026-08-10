@@ -1,14 +1,14 @@
-import { en, type Messages } from "./locales/en.js";
-import { ja } from "./locales/ja.js";
-import { ru } from "./locales/ru.js";
-import { zhCN } from "./locales/zh-CN.js";
-import { zhTW } from "./locales/zh-TW.js";
+import { en, type Messages } from "./locales/en";
+import { ja } from "./locales/ja";
+import { ru } from "./locales/ru";
+import { zhCN } from "./locales/zh-CN";
+import { zhTW } from "./locales/zh-TW";
 import {
 	detectLocale,
 	saveLocale,
 	type Locale,
 	supportedLocales,
-} from "./locale.js";
+} from "./locale";
 
 const locales: Record<Locale, Messages> = {
 	en,
@@ -369,4 +369,4 @@ export {
 	isSupportedLocale,
 	supportedLocales,
 	type Locale,
-} from "./locale.js";
+} from "./locale";

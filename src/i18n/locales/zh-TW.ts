@@ -1,4 +1,4 @@
-import type { Messages } from "./en.js";
+import type { Messages } from "./en";
 
 export const zhTW = {
 	app: {

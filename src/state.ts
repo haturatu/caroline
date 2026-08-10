@@ -1,4 +1,4 @@
-import type { AppState } from "./types.js";
+import type { AppState } from "./types";
 
 export const state: AppState = {
 	query: "",

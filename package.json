@@ -4,13 +4,15 @@
 	"version": "0.1.0",
 	"type": "module",
 	"scripts": {
-		"build": "npm run build:assets && tsc",
-		"build:assets": "rm -rf static && cp -R public static",
-		"lint": "biome lint src public",
+		"build": "vite build",
+		"dev": "vite",
+		"preview": "vite preview",
+		"lint": "biome lint index.html src",
 		"typecheck": "tsc --noEmit"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.5.7",
-		"typescript": "7.0.2"
+		"typescript": "7.0.2",
+		"vite": "8.2.1"
 	}
 }

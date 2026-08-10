@@ -1,7 +1,7 @@
-import { $$, $, escapeHTML } from "./dom.js";
-import { t } from "./i18n/index.js";
-import { state } from "./state.js";
-import type { QuerySuggestion } from "./types.js";
+import { $$, $, escapeHTML } from "./dom";
+import { t } from "./i18n/index";
+import { state } from "./state";
+import type { QuerySuggestion } from "./types";
 
 const queryFields = [
 	{ name: "severity", detail: "suggestions.severity" },

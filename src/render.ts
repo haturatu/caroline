@@ -1,4 +1,4 @@
-import { $$, $, escapeHTML } from "./dom.js";
+import { $$, $, escapeHTML } from "./dom";
 import {
 	formatNumber,
 	formatClockTime,
@@ -6,12 +6,12 @@ import {
 	formatTimelineAxisTick,
 	formatTimelineDetail,
 	severityClass,
-} from "./format.js";
-import { buildBasicQuery } from "./api.js";
-import { copyText } from "./clipboard.js";
-import { state } from "./state.js";
-import { t, tp } from "./i18n/index.js";
-import type { ExplorerEntry, RenderActions, TimelineBucket } from "./types.js";
+} from "./format";
+import { buildBasicQuery } from "./api";
+import { copyText } from "./clipboard";
+import { state } from "./state";
+import { t, tp } from "./i18n/index";
+import type { ExplorerEntry, RenderActions, TimelineBucket } from "./types";
 
 let actions: RenderActions = {};
 let timelineDragStartX: number | null = null;

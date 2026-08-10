@@ -7,22 +7,22 @@ import {
 	openTail,
 	setTimelineBuckets,
 	syncURL,
-} from "./api.js";
-import { $$, $, escapeHTML } from "./dom.js";
-import { copyText } from "./clipboard.js";
-import { errorText } from "./format.js";
+} from "./api";
+import { $$, $, escapeHTML } from "./dom";
+import { copyText } from "./clipboard";
+import { errorText } from "./format";
 import {
 	getLocale,
 	isSupportedLocale,
 	setLocale,
 	t,
 	tp,
-} from "./i18n/index.js";
+} from "./i18n/index";
 import {
 	closeQuerySuggestions,
 	handleQueryKeydown,
 	renderQuerySuggestions,
-} from "./query-suggestions.js";
+} from "./query-suggestions";
 import {
 	renderAll,
 	renderDetail,
@@ -31,9 +31,9 @@ import {
 	renderLoading,
 	renderResultsMeta,
 	setRenderActions,
-} from "./render.js";
-import { state } from "./state.js";
-import type { ExplorerEntry, Theme } from "./types.js";
+} from "./render";
+import { state } from "./state";
+import type { ExplorerEntry, Theme } from "./types";
 
 let tailSource: EventSource | null = null;
 let statusTimer: number | null = null;
