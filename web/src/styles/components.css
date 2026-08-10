@@ -3,9 +3,16 @@
 	z-index: 30;
 	inset-block-start: calc(60px + env(safe-area-inset-top));
 	inset-inline-end: max(16px, env(safe-area-inset-right));
+	max-inline-size: calc(100dvw - 32px);
+	max-block-size: calc(
+		100dvh - 60px - env(safe-area-inset-top) -
+		max(16px, env(safe-area-inset-bottom))
+	);
 	min-width: 190px;
 	margin: 0;
 	padding: 6px;
+	overflow-y: auto;
+	overscroll-behavior: contain;
 	color: var(--text);
 	background: var(--surface-soft);
 	border: 1px solid var(--border-strong);
@@ -27,20 +34,6 @@
 	.header-menu[popover]:popover-open,
 	.query-help-popover[popover]:popover-open {
 		display: block;
-	}
-}
-
-@supports (position-area: block-end) {
-	#headerMenuButton {
-		anchor-name: --header-menu-trigger;
-	}
-
-	.header-menu[popover] {
-		position: absolute;
-		inset: auto;
-		position-anchor: --header-menu-trigger;
-		position-area: block-end span-inline-end;
-		margin-block-start: 8px;
 	}
 }
 
