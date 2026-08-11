@@ -67,8 +67,11 @@ func saveHubPin(path, keyID string, publicKey ed25519.PublicKey) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	if err := os.Chmod(filepath.Dir(path), 0o700); err != nil {
-		return err
+	directory := filepath.Dir(path)
+	if directory != "." && directory != "" {
+		if err := os.Chmod(directory, 0o700); err != nil {
+			return err
+		}
 	}
 	temp, err := os.CreateTemp(filepath.Dir(path), ".hub-pin-*")
 	if err != nil {
