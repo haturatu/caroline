@@ -1,4 +1,4 @@
-import type { Messages } from "./en";
+import { en, type Messages } from "./en";
 
 export const zhCN = {
 	app: {
@@ -12,6 +12,7 @@ export const zhCN = {
 		carolineForDocker: "适用于 Docker Engine 的 Caroline",
 	},
 	nav: {
+		...en.nav,
 		ariaLabel: "日志分区",
 		logsExplorer: "日志浏览器",
 		timeline: "时间线",
@@ -183,6 +184,7 @@ export const zhCN = {
 		copyFailed: "复制失败，请检查浏览器权限。",
 	},
 	alerts: {
+		...en.alerts,
 		title: "日志告警",
 		create: "创建告警",
 		createTitle: "创建日志告警",

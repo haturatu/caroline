@@ -1,4 +1,4 @@
-import type { Messages } from "./en";
+import { en, type Messages } from "./en";
 
 export const zhTW = {
 	app: {
@@ -12,6 +12,7 @@ export const zhTW = {
 		carolineForDocker: "適用於 Docker Engine 的 Caroline",
 	},
 	nav: {
+		...en.nav,
 		ariaLabel: "記錄檔區段",
 		logsExplorer: "記錄檔總管",
 		timeline: "時間軸",
@@ -183,6 +184,7 @@ export const zhTW = {
 		copyFailed: "複製失敗，請檢查瀏覽器權限。",
 	},
 	alerts: {
+		...en.alerts,
 		title: "記錄檔警示",
 		create: "建立警示",
 		createTitle: "建立記錄檔警示",

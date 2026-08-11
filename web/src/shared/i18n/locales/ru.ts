@@ -1,4 +1,4 @@
-import type { Messages } from "./en";
+import { en, type Messages } from "./en";
 
 export const ru = {
 	app: {
@@ -12,6 +12,7 @@ export const ru = {
 		carolineForDocker: "Caroline для Docker Engine",
 	},
 	nav: {
+		...en.nav,
 		ariaLabel: "Разделы журналов",
 		logsExplorer: "Обозреватель журналов",
 		timeline: "Временная шкала",
@@ -190,6 +191,7 @@ export const ru = {
 		copyFailed: "Не удалось скопировать. Проверьте разрешения браузера.",
 	},
 	alerts: {
+		...en.alerts,
 		title: "Оповещения журналов",
 		create: "Создать оповещение",
 		createTitle: "Создать оповещение журнала",
