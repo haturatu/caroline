@@ -1,7 +1,7 @@
 # Caroline
 <img width="1341" height="629" alt="top" src="https://github.com/user-attachments/assets/d89ad9db-64fa-45c4-93af-3e7329bdca6e" />
 
-Caroline is a lightweight web app for searching and inspecting stdout/stderr from currently running Docker containers. It is inspired by the information architecture of Google Cloud Logs Explorer, but its query syntax and data model are intentionally a small subset designed for Docker logs.
+Caroline is a lightweight Hub and Agent system for searching and inspecting stdout/stderr from Docker containers across multiple hosts. It is inspired by the information architecture of Google Cloud Logs Explorer, but its query syntax and data model are intentionally a small subset designed for Docker logs.
 
 See the [Japanese README](README.ja.md).
 
@@ -13,7 +13,10 @@ The name came from listening to The Velvet Underground's “Caroline” while wo
 
 ## Features
 
-- Automatically discovers running containers
+- A Hub that stores normalized logs in SQLite
+- A read-only Agent that discovers containers and follows Docker logs on each host
+- At-least-once delivery with bounded batches, retry, disk spool, and duplicate suppression
+- Node-aware search, container grouping, and Agent online/offline status
 - Filters by container, stdout/stderr stream, severity, and time range
 - Full-field search and Caroline Query Syntax
 - Timeline, field aggregation, and a log detail drawer
@@ -22,7 +25,7 @@ The name came from listening to The Velvet Underground's “Caroline” while wo
 - Share links that preserve the current search
 - Dark and light themes with mobile navigation
 - English, Japanese, Simplified Chinese, Traditional Chinese, and Russian UI
-- Read-only access to the Docker Engine
+- Agents use read-only access to their local Docker Engine; the Hub does not need the Docker socket
 
 ## Internationalization
 
@@ -38,7 +41,13 @@ docker compose up -d --build
 
 Open <http://localhost:8080> in a browser.
 
-Compose mounts `/var/run/docker.sock` into the container as read-only. Caroline only uses Docker Engine GET APIs and does not persist logs or search results.
+The default Compose service is the Hub. It stores logs and identities in the `caroline-data` volume and does not mount the Docker socket. An Agent is a separate Compose profile because it must be placed on the Docker host whose logs it should collect:
+
+~~~sh
+docker compose up -d --build caroline
+~~~
+
+Generate an enrollment token from the Hub's node API, then start the Agent with that token and the Hub public key. The Agent is read-only against `/var/run/docker.sock` and keeps its identity and offline spool in `caroline-agent-data`.
 
 To stop Caroline:
 
@@ -52,12 +61,15 @@ Requirements:
 
 - Go 1.26 or later
 - Node.js 22 or later and npm
-- An accessible Docker Engine
+- An accessible Docker Engine (only required by `caroline-agent`)
 
 ~~~sh
 npm ci
 npm run build
 go run ./cmd/caroline
+
+# On each Docker host, after configuring CAROLINE_HUB_URL and enrollment:
+go run ./cmd/caroline-agent
 ~~~
 
 The server listens on <http://localhost:8080> by default.
@@ -67,18 +79,44 @@ The server listens on <http://localhost:8080> by default.
 | Variable | Default | Description |
 | --- | --- | --- |
 | `PORT` | `8080` | Port used by the web server |
-| `DOCKER_HOST` | `unix:///var/run/docker.sock` | Docker Engine endpoint |
+| `CAROLINE_DATA_DIR` | `.` | Hub data directory for the SQLite database, Hub key, and default alert file |
+| `CAROLINE_DB` | `$CAROLINE_DATA_DIR/caroline.db` | SQLite database path |
+| `CAROLINE_HUB_KEY` | `$CAROLINE_DATA_DIR/hub.key` | Hub Ed25519 private key |
+| `CAROLINE_RETENTION` | disabled | Log retention duration, for example `7d` |
+| `CAROLINE_MAX_STORAGE_SIZE` | disabled | Logical retained log payload budget, for example `10GiB` |
 | `ALERTS_FILE` | `alerts.json` | JSON file used to persist alert rules and state |
+| `CAROLINE_HUB_URL` | — | Agent: Hub base URL |
+| `CAROLINE_ENROLLMENT_TOKEN` | — | Agent: single-use registration token |
+| `CAROLINE_HUB_PUBLIC_KEY` | — | Agent: base64 raw Ed25519 Hub public key; required unless TOFU is explicitly enabled |
+| `CAROLINE_AGENT_STATE_DIR` | `/var/lib/caroline-agent` | Agent identity and disk spool directory |
+| `CAROLINE_AGENT_SPOOL_MAX_SIZE` | `1GiB` | Agent spool size limit; oldest batches are dropped after the limit |
+| `CAROLINE_AGENT_SPOOL_MAX_AGE` | `24h` | Agent spool age limit |
+| `CAROLINE_AGENT_TRUST_ON_FIRST_USE` | `false` | Allow the first Hub key to be pinned automatically; prefer `CAROLINE_HUB_PUBLIC_KEY` |
+| `CAROLINE_AGENT_COMPRESSION` | `gzip` | Agent batch transport: `identity`, `gzip`, or `zstd` |
+| `DOCKER_HOST` | Docker default | Agent Docker Engine endpoint |
 
 `DOCKER_HOST` supports `unix://`, `tcp://`, `http://`, and `https://` endpoints. When using a TCP or HTTP connection, configure authentication, TLS, and network controls on the Docker Engine side as appropriate.
 
-Caroline can start even when the Docker socket cannot be read, but the UI will show a Docker connection error.
+The Hub can run without a Docker socket. In Hub mode `/api/status` reports `mode: "hub"`; logs arrive from authenticated Agents. For a single-host deployment, run an Agent beside the Hub rather than granting the Hub access to the Docker socket.
+
+### Registering an Agent
+
+Create a short-lived, single-use token from the Hub:
+
+~~~sh
+curl -X POST http://localhost:8080/api/nodes \
+  -H 'Content-Type: application/json' \
+  -d '{"ttlSeconds":900}'
+~~~
+
+Read `hubPublicKey` from `GET /api/health`, encode its raw bytes with base64, and configure the Agent with `CAROLINE_HUB_URL`, `CAROLINE_ENROLLMENT_TOKEN`, and `CAROLINE_HUB_PUBLIC_KEY`. The Agent registers once, receives an authenticated session, and subsequently signs every request with its persistent Ed25519 key. Protect the node-management endpoints with the deployment's access-control layer before exposing them outside a trusted network.
 
 ## Using the UI
 
 ### Filters
 
 - **Container**: Select running containers
+- **Node**: Select one or more Docker hosts
 - **Stream**: `stdout` or `stderr`
 - **Severity**: Exact matches for `Errors`, `Warnings`, `Info`, and `Debug`
 - **Time**: 5 minutes, 15 minutes, 1 hour, 6 hours, 24 hours, 7 days, or a custom range
@@ -150,7 +188,7 @@ The supported operators are:
 - A newline: Treated as `AND`
 - `AND` / `OR`: Combine clauses
 
-Supported fields include `severity`, `stream`, `logName`, `resource.type`, `resource.labels.container_name`, `resource.labels.container_id`, `resource.labels.image`, `timestamp`, `labels.*`, `jsonPayload.*`, and `textPayload` / `message`. Short names such as `container` and `container.name` are also supported.
+Supported fields include `severity`, `stream`, `logName`, `resource.type`, `resource.labels.node_id`, `resource.labels.node_name`, `resource.labels.container_name`, `resource.labels.container_id`, `resource.labels.image`, `timestamp`, `labels.*`, `jsonPayload.*`, and `textPayload` / `message`. Short names such as `node`, `container`, and `container.name` are also supported.
 
 `SEARCH("text")` searches the Summary, Text Payload, Log Name, resource type and labels, and JSON Payload. `NOT`, parenthesized precedence, regular expressions, and Cloud Logging-specific functions are not supported.
 
@@ -159,7 +197,7 @@ Supported fields include `severity`, `stream`, `logName`, `resource.type`, `reso
 Docker log lines are normalized into a format similar to a Cloud Logging LogEntry:
 
 - `resource.type`: `docker_container`
-- `resource.labels`: Container name, container ID, and image
+- `resource.labels`: Node ID/name, container name/ID, and image
 - `logName`: `containers/<container>/<stream>`
 - `severity`: Estimated as `DEBUG`, `INFO`, `WARNING`, or `ERROR` from keywords in the log body
 - `stream`: `stdout` or `stderr`
@@ -194,7 +232,7 @@ Returns a health response for the Caroline server.
 
 ### `GET /api/status`
 
-Returns the Docker Engine connection state, Docker version, API version, and check time. If Docker is stopped, the endpoint still returns an HTTP 200 status payload with `connected` set to `false`.
+Returns the Hub mode or Docker Engine connection state, Docker version, API version, and check time. A Hub response has `mode: "hub"`; its `connected` field is not a Docker health signal.
 
 ### `GET /api/explorer`
 
@@ -210,6 +248,7 @@ Main query parameters:
 | `severity` | Severity filter |
 | `stream` | `stdout` / `stderr` |
 | `containers` | Container names, short IDs, or full IDs, comma-separated |
+| `nodes` | Node IDs or names, comma-separated |
 | `sort` | `asc` or `desc` |
 | `limit` | 1–1,000; default 100 |
 | `pageToken` | The previous response's `nextPageToken` |
@@ -226,7 +265,7 @@ In addition to `entries`, the response includes `containers`, a responsive 24–
 
 Returns new logs as Server-Sent Events.
 
-Main query parameters are `since`, `q`, `severity`, `stream`, and `containers`. `since` is an RFC3339 timestamp.
+Main query parameters are `since`, `q`, `severity`, `stream`, `containers`, and `nodes`. `since` is an RFC3339 timestamp.
 
 Events:
 
