@@ -3,7 +3,9 @@ import {
 	createAlert,
 	deleteAlert,
 	fetchAlerts,
+	updateAlert,
 	type AlertRuleInput,
+	type AlertRulePatchInput,
 } from "../features/alerts/api";
 import {
 	renderAlertError,
@@ -39,7 +41,7 @@ import { renderFilters } from "../features/filters/render";
 import { renderEntries } from "../features/logs/render";
 import { renderDetail } from "../features/logs/detail";
 import { state } from "./state";
-import type { Theme } from "../shared/types";
+import type { AlertRule, Theme } from "../shared/types";
 
 let statusTimer: number | null = null;
 let searchTimer: number | null = null;
@@ -51,6 +53,7 @@ let errorContextFocused = false;
 let initialLoadingTimer: number | null = null;
 let initialLoadingVisibleAt = 0;
 let alertReturnFocus: HTMLElement | null = null;
+let editingAlertId: string | null = null;
 const loadingShowDelay = 200;
 const loadingMinimumDuration = 350;
 
@@ -270,7 +273,9 @@ function toggleMobileNav(): void {
 	document.body.classList.remove("fields-open");
 	$("#mobileNavBackdrop").removeAttribute("hidden");
 	$("#consoleMenuButton").setAttribute("aria-expanded", "true");
-	requestAnimationFrame(() => $("#logsNavButton").focus());
+	requestAnimationFrame(() =>
+		$(".side-nav-link.active")?.focus(),
+	);
 }
 
 function setActiveNavigation(id: string): void {
@@ -280,6 +285,16 @@ function setActiveNavigation(id: string): void {
 		if (active) button.setAttribute("aria-current", "location");
 		else button.removeAttribute("aria-current");
 	});
+	const activeButton = document.getElementById(id) as HTMLButtonElement | null;
+	const section = activeButton?.closest<HTMLElement>(".nav-section");
+	const toggle = section?.querySelector<HTMLButtonElement>(
+		".nav-section-toggle",
+	);
+	if (toggle?.getAttribute("aria-expanded") === "false") {
+		toggle.setAttribute("aria-expanded", "true");
+		const panelId = toggle.getAttribute("aria-controls");
+		if (panelId) $(`#${panelId}`).removeAttribute("hidden");
+	}
 }
 
 function focusSection(section: "main-content" | "timeline" | "fields"): void {
@@ -343,14 +358,6 @@ async function settleInitialLoading(): Promise<void> {
 async function loadStatus(): Promise<void> {
 	try {
 		const status = await fetchStatus();
-		$("#sideEngineStatus").textContent = status.connected
-			? t("status.connected")
-			: t("status.unavailable");
-		$("#sideEngineVersion").textContent = status.connected
-			? t("status.engineVersion", {
-					version: status.dockerVersion || t("status.unknownVersion"),
-				})
-			: t("status.mountDockerSocket");
 		if (status.connected) {
 			clearError("status");
 		} else {
@@ -525,16 +532,52 @@ function setDrawerOpen(open: boolean): void {
 	document.body.classList.toggle("drawer-open", open);
 }
 
-function setAlertDialogOpen(open: boolean): void {
+function updateAlertDialogCopy(): void {
+	const editing = Boolean(editingAlertId);
+	$("#alertDialogTitle").textContent = t(
+		editing ? "alerts.editTitle" : "alerts.createTitle",
+	);
+	$("#saveAlertButton").textContent = t(
+		editing ? "alerts.update" : "alerts.save",
+	);
+	$("#alertWebhookHint").toggleAttribute("hidden", !editing);
+	$("#alertRemoveWebhookField").toggleAttribute("hidden", !editing);
+}
+
+function setAlertDialogOpen(open: boolean, rule?: AlertRule): void {
 	const dialog = $("#alertDialog") as HTMLDialogElement;
 	if (open) {
 		if (dialog.open) return;
+		editingAlertId = rule?.id || null;
+		const form = $("#alertForm") as HTMLFormElement;
+		form.reset();
+		updateAlertDialogCopy();
+		if (rule) {
+			($("#alertNameInput") as HTMLInputElement).value = rule.name;
+			($("#alertQueryInput") as HTMLTextAreaElement).value = rule.query;
+			($("#alertSeverityInput") as HTMLSelectElement).value = rule.severity || "";
+			($("#alertSampleModeInput") as HTMLSelectElement).value = rule.sampleMode;
+			($("#alertLabelsInput") as HTMLInputElement).value = Object.entries(
+				rule.labels || {},
+			)
+				.map(([key, value]) => `${key}=${value}`)
+				.join(", ");
+			($("#alertThresholdInput") as HTMLInputElement).value = String(rule.threshold);
+			($("#alertWindowInput") as HTMLInputElement).value = String(rule.windowSeconds);
+			($("#alertCooldownInput") as HTMLInputElement).value = String(rule.cooldownSeconds);
+			($("#alertRunbookInput") as HTMLInputElement).value = rule.runbookUrl || "";
+			// The API intentionally does not return the webhook secret. A blank field
+			// therefore means "keep" while the explicit checkbox removes it.
+			($("#alertWebhookInput") as HTMLInputElement).value = "";
+			($("#alertRemoveWebhookInput") as HTMLInputElement).checked = false;
+		} else {
+			($("#alertQueryInput") as HTMLTextAreaElement).value =
+				buildExplorerQuery();
+		}
 		alertReturnFocus =
 			document.activeElement instanceof HTMLElement
 				? document.activeElement
 				: null;
-		$("#alertQueryPreview").textContent =
-			buildExplorerQuery() || t("query.allLogs");
 		if (dialog.showModal) dialog.showModal();
 		else dialog.setAttribute("open", "");
 		requestAnimationFrame(() => $("#alertNameInput").focus());
@@ -545,6 +588,35 @@ function setAlertDialogOpen(open: boolean): void {
 	if (alertReturnFocus?.isConnected)
 		alertReturnFocus.focus({ preventScroll: true });
 	alertReturnFocus = null;
+	editingAlertId = null;
+	($("#alertForm") as HTMLFormElement).reset();
+	updateAlertDialogCopy();
+}
+
+function renderAppView(): void {
+	const alertsView = state.view === "alerts";
+	$("#explorerView").toggleAttribute("hidden", alertsView);
+	$("#alertsView").toggleAttribute("hidden", !alertsView);
+	document.title = alertsView ? `${t("alerts.pageTitle")} · ${t("app.name")}` : t("app.title");
+	setActiveNavigation(alertsView ? "alertsNavButton" : "logsNavButton");
+}
+
+function setAppView(view: "explorer" | "alerts"): void {
+	if (state.view === view) {
+		closeMobileOverlay();
+		renderAppView();
+		return;
+	}
+	closeMobileOverlay();
+	state.view = view;
+	syncURL();
+	renderAppView();
+	if (view === "alerts") {
+		void loadAlerts();
+		requestAnimationFrame(() => $("#alertsPageTitle").focus({ preventScroll: true }));
+	} else {
+		requestAnimationFrame(() => $("#query-title").focus({ preventScroll: true }));
+	}
 }
 
 async function loadAlerts(): Promise<void> {
@@ -575,7 +647,7 @@ async function submitAlert(): Promise<void> {
 	);
 	const rule: AlertRuleInput = {
 		name: input("#alertNameInput").value.trim(),
-		query: buildExplorerQuery(),
+		query: input("#alertQueryInput").value.trim(),
 		severity: input("#alertSeverityInput").value,
 		labels,
 		runbookUrl: input("#alertRunbookInput").value.trim(),
@@ -590,14 +662,30 @@ async function submitAlert(): Promise<void> {
 	saveButton.disabled = true;
 	saveButton.setAttribute("aria-busy", "true");
 	try {
-		const created = await createAlert(rule);
-		state.alerts.rules = [created, ...state.alerts.rules];
+		if (editingAlertId) {
+			const patch: AlertRulePatchInput = { ...rule };
+			delete patch.enabled;
+			if (!rule.webhookUrl) delete patch.webhookUrl;
+			if (($("#alertRemoveWebhookInput") as HTMLInputElement).checked)
+				patch.webhookUrl = "";
+			const updated = await updateAlert(editingAlertId, patch);
+			state.alerts.rules = state.alerts.rules.map((item) =>
+				item.id === updated.id ? updated : item,
+			);
+			toast(t("alerts.updated"));
+		} else {
+			const created = await createAlert(rule);
+			state.alerts.rules = [created, ...state.alerts.rules];
+			toast(t("alerts.created"));
+		}
 		renderAlerts();
 		(form as HTMLFormElement).reset();
 		setAlertDialogOpen(false);
-		toast(t("alerts.created"));
 	} catch (error) {
-		toast(errorText(error) || t("alerts.createFailed"));
+		toast(
+			errorText(error) ||
+				(editingAlertId ? t("alerts.updateFailed") : t("alerts.createFailed")),
+		);
 	} finally {
 		saveButton.disabled = false;
 		saveButton.removeAttribute("aria-busy");
@@ -720,6 +808,8 @@ function setupLocale(): void {
 			});
 			renderAll();
 			renderAlerts();
+			updateAlertDialogCopy();
+			renderAppView();
 			renderErrorBanner();
 			applyTheme(state.theme);
 			closeHeaderMenus(true);
@@ -758,6 +848,14 @@ function setupEvents(): void {
 	$("#mobileNavBackdrop").addEventListener("click", closeMobileOverlay);
 	setupPopover("#headerMenu", "#headerMenuButton");
 	setupPopover("#queryHelpPopover", "#queryHelpButton");
+	$$<HTMLButtonElement>(".nav-section-toggle").forEach((button) => {
+		button.addEventListener("click", () => {
+			const expanded = button.getAttribute("aria-expanded") === "true";
+			const panel = $(`#${button.getAttribute("aria-controls")}`);
+			button.setAttribute("aria-expanded", String(!expanded));
+			panel.toggleAttribute("hidden", expanded);
+		});
+	});
 	$("#themeToggleButton").addEventListener("click", () => {
 		applyTheme(state.theme === "dark" ? "light" : "dark");
 		closeHeaderMenus(true);
@@ -770,12 +868,17 @@ function setupEvents(): void {
 		void loadExplorer();
 	});
 	$("#logsNavButton").addEventListener("click", () =>
-		focusSection("main-content"),
+		setAppView("explorer"),
 	);
-	$("#timelineNavButton").addEventListener("click", () =>
-		focusSection("timeline"),
-	);
-	$("#fieldsNavButton").addEventListener("click", () => focusSection("fields"));
+	$("#alertsNavButton").addEventListener("click", () => setAppView("alerts"));
+	$("#timelineNavButton").addEventListener("click", () => {
+		setAppView("explorer");
+		requestAnimationFrame(() => focusSection("timeline"));
+	});
+	$("#fieldsNavButton").addEventListener("click", () => {
+		setAppView("explorer");
+		requestAnimationFrame(() => focusSection("fields"));
+	});
 	$("#runQueryButton").addEventListener("click", runQuery);
 	$("#clearQueryButton").addEventListener("click", resetFilters);
 	$("#searchAllFields").addEventListener("input", (event: Event) => {
@@ -885,10 +988,14 @@ function setupEvents(): void {
 			toast(copied ? t("common.linkCopied") : t("detail.copyFailed")),
 		);
 	});
-	$("#createAlertButton").addEventListener("click", () =>
+	$("#createAlertButton").addEventListener("click", () => setAlertDialogOpen(true));
+	$("#manageAlertsButton").addEventListener("click", () => setAppView("alerts"));
+	$("#createAlertPageButton").addEventListener("click", () =>
 		setAlertDialogOpen(true),
 	);
 	$("#refreshAlertsButton").addEventListener("click", () => void loadAlerts());
+	$("#alertSearchInput").addEventListener("input", () => renderAlerts());
+	$("#alertStatusFilter").addEventListener("change", () => renderAlerts());
 	$("#closeAlertButton").addEventListener("click", () =>
 		setAlertDialogOpen(false),
 	);
@@ -904,16 +1011,47 @@ function setupEvents(): void {
 		setAlertDialogOpen(false);
 	});
 	$("#alertList").addEventListener("click", (event: MouseEvent) => {
-		const button = (event.target as Element).closest<HTMLButtonElement>(
-			"[data-alert-delete]",
-		);
+		const target = event.target as Element;
+		const editButton = target.closest<HTMLButtonElement>("[data-alert-edit]");
+		if (editButton?.dataset.alertEdit) {
+			const rule = state.alerts.rules.find(
+				(item) => item.id === editButton.dataset.alertEdit,
+			);
+			if (rule) setAlertDialogOpen(true, rule);
+			return;
+		}
+		const toggleButton = target.closest<HTMLButtonElement>("[data-alert-toggle]");
+		if (toggleButton?.dataset.alertToggle) {
+			const rule = state.alerts.rules.find(
+				(item) => item.id === toggleButton.dataset.alertToggle,
+			);
+			if (!rule) return;
+			toggleButton.disabled = true;
+			void updateAlert(rule.id, { enabled: !rule.enabled })
+				.then((updated) => {
+					state.alerts.rules = state.alerts.rules.map((item) =>
+						item.id === updated.id ? updated : item,
+					);
+					renderAlerts();
+					toast(t(updated.enabled ? "alerts.resumed" : "alerts.pausedMessage"));
+				})
+				.catch((error) => {
+					toggleButton.disabled = false;
+					toast(errorText(error) || t("alerts.updateFailed"));
+				});
+			return;
+		}
+		const button = target.closest<HTMLButtonElement>("[data-alert-delete]");
 		const id = button?.dataset.alertDelete;
 		if (!id) return;
+		const rule = state.alerts.rules.find((item) => item.id === id);
+		if (!rule || !window.confirm(t("alerts.deleteConfirm", { name: rule.name })))
+			return;
 		button.disabled = true;
 		void deleteAlert(id)
 			.then(() => {
 				state.alerts.rules = state.alerts.rules.filter(
-					(rule) => rule.id !== id,
+					(item) => item.id !== id,
 				);
 				renderAlerts();
 				toast(t("alerts.deleted"));
@@ -945,8 +1083,10 @@ function setupEvents(): void {
 	$("#timelineZoomIn").addEventListener("click", () => shiftTimelineRange(-1));
 	window.addEventListener("popstate", () => {
 		hydrateURL();
+		renderAppView();
 		syncMobileFieldsOverlay();
 		void loadExplorer();
+		if (state.view === "alerts") void loadAlerts();
 		setLive(state.live);
 	});
 	document.addEventListener("keydown", (event: KeyboardEvent) => {
@@ -1027,6 +1167,7 @@ setupEvents();
 setLocale(getLocale());
 setupLocale();
 applyTheme(loadSavedTheme());
+renderAppView();
 const enableTimelineResolution = setupTimelineResolution(() => {
 	if (!state.response) return;
 	state.pageToken = "";

@@ -99,56 +99,42 @@ export function AppShell(): Node {
 				</header>
 
 				<div className="workspace-layout">
-					<nav className="side-nav" id="sideNav" aria-label="Log sections">
-						<div className="side-nav-group">
-							<button
-								className="side-nav-link active"
-								id="logsNavButton"
-								type="button"
-								aria-current="location"
-								title="Logs Explorer"
-							>
-								<svg viewBox="0 0 24 24" aria-hidden="true">
-									<path d="M4 5h16M4 12h16M4 19h10" />
-								</svg>
-								<span>Logs Explorer</span>
-							</button>
-							<button
-								className="side-nav-link"
-								id="timelineNavButton"
-								type="button"
-								title="Timeline"
-							>
-								<svg viewBox="0 0 24 24" aria-hidden="true">
-									<path d="M4 19V5M4 19h16M8 15V9M12 15V6M16 15v-3" />
-								</svg>
-								<span>Timeline</span>
-							</button>
-							<button
-								className="side-nav-link"
-								id="fieldsNavButton"
-								type="button"
-								title="Fields"
-							>
-								<svg viewBox="0 0 24 24" aria-hidden="true">
-									<path d="M5 5h14v14H5zM8 9h8M8 13h5" />
-								</svg>
-								<span>Fields</span>
-							</button>
-						</div>
-						<div className="side-nav-footer">
-							<span className="engine-icon" aria-hidden="true">
-								D
-							</span>
-							<span>
-								<strong id="sideEngineStatus">Docker Engine</strong>
-								<small id="sideEngineVersion">Waiting for connection</small>
-							</span>
+					<nav className="side-nav" id="sideNav" aria-label="Workspace sections">
+						<div className="side-nav-scroll">
+							<NavigationSection id="exploreNav" labelKey="nav.explore">
+								<NavigationItem
+									id="logsNavButton"
+									labelKey="nav.logsExplorer"
+									path="M4 5h16M4 12h16M4 19h10"
+									view="explorer"
+								/>
+								<NavigationItem
+									id="timelineNavButton"
+									labelKey="nav.timeline"
+									path="M4 19V5M4 19h16M8 15V9M12 15V6M16 15v-3"
+									section="timeline"
+								/>
+								<NavigationItem
+									id="fieldsNavButton"
+									labelKey="nav.fields"
+									path="M5 5h14v14H5zM8 9h8M8 13h5"
+									section="fields"
+										/>
+									</NavigationSection>
+							<NavigationSection id="detectNav" labelKey="nav.detect">
+								<NavigationItem
+									id="alertsNavButton"
+									labelKey="nav.alerts"
+									path="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"
+									view="alerts"
+								/>
+							</NavigationSection>
 						</div>
 					</nav>
 					<div className="mobile-nav-backdrop" id="mobileNavBackdrop" hidden />
 
 					<main className="main-content" id="main-content" tabIndex={-1}>
+						<div id="explorerView">
 						<div className="page-heading">
 							<div>
 								<h1>Logs Explorer</h1>
@@ -161,16 +147,23 @@ export function AppShell(): Node {
 									type="button"
 									data-i18n="alerts.create"
 								>
-									Create Alert
-								</button>
-								<button className="text-button" id="shareButton" type="button">
+										Create Alert
+									</button>
+									<button
+										className="text-button"
+										id="manageAlertsButton"
+										type="button"
+										data-i18n="alerts.manage"
+									>
+										Manage Alerts
+									</button>
+									<button className="text-button" id="shareButton" type="button">
 									Share Link
 								</button>
 							</div>
 						</div>
 
 						<QueryPanel />
-						<AlertsPanel />
 
 						<div
 							className="error-banner"
@@ -205,11 +198,10 @@ export function AppShell(): Node {
 
 						<footer className="page-footer">
 							<span>Caroline for Docker Engine</span>
-							<span>
-								<span className="footer-dot" />
-								<span id="localDataLabel">Data stays on this host</span>
-							</span>
 						</footer>
+						</div>
+
+						<AlertManagementView />
 					</main>
 				</div>
 			</div>
@@ -248,12 +240,23 @@ export function AppShell(): Node {
 							placeholder="e.g. API errors"
 						/>
 					</label>
-					<div className="alert-field">
+					<label className="alert-field alert-query-field">
 						<span data-i18n="alerts.query">Query</span>
-						<code className="alert-query-preview" id="alertQueryPreview">
-							All Logs
-						</code>
-					</div>
+						<textarea
+							className="alert-query-input"
+							id="alertQueryInput"
+							name="query"
+							rows={4}
+							spellcheck={false}
+							data-i18n-placeholder="alerts.queryPlaceholder"
+							placeholder="severity >= ERROR"
+							aria-label="Alert query"
+							data-i18n-aria-label="alerts.query"
+						/>
+						<span className="alert-field-hint" data-i18n="alerts.queryHint">
+							Use the same query syntax as Logs Explorer. Leave blank for all logs.
+						</span>
+					</label>
 					<div className="alert-number-grid">
 						<label className="alert-field">
 							<span data-i18n="alerts.severity">Severity</span>
@@ -341,6 +344,18 @@ export function AppShell(): Node {
 							data-i18n-placeholder="alerts.webhookOptional"
 							placeholder="Optional generic webhook"
 						/>
+					</label>
+					<p
+						className="alert-field-hint"
+						id="alertWebhookHint"
+						data-i18n="alerts.webhookKeepHint"
+						hidden
+					>
+						Leave blank to keep the configured webhook.
+					</p>
+					<label className="alert-checkbox" id="alertRemoveWebhookField" hidden>
+						<input id="alertRemoveWebhookInput" type="checkbox" />
+						<span data-i18n="alerts.removeWebhook">Remove configured webhook</span>
 					</label>
 					<div className="dialog-actions">
 						<button
@@ -579,28 +594,178 @@ function QueryPanel(): Node {
 	);
 }
 
-function AlertsPanel(): Node {
+function AlertManagementView(): Node {
 	return (
-		<section className="alerts-panel" aria-labelledby="alerts-title">
-			<div className="panel-heading">
-				<h2 id="alerts-title" data-i18n="alerts.title">
-					Log Alerts
-				</h2>
-				<button
-					className="text-button"
-					id="refreshAlertsButton"
-					type="button"
-					data-i18n="alerts.refresh"
-				>
-					Refresh Alerts
-				</button>
+		<section
+			className="alert-management-view"
+			id="alertsView"
+			hidden
+			aria-labelledby="alertsPageTitle"
+		>
+			<div className="page-heading alert-page-heading">
+				<div>
+					<div className="section-kicker" data-i18n="alerts.kicker">
+						ALERTING
+					</div>
+					<h1 id="alertsPageTitle" tabIndex={-1} data-i18n="alerts.pageTitle">
+						Alert policies
+					</h1>
+					<p data-i18n="alerts.pageDescription">
+						Manage rules evaluated against your Docker logs.
+					</p>
+				</div>
+				<div className="heading-actions">
+					<button
+						className="text-button"
+						id="refreshAlertsButton"
+						type="button"
+						data-i18n="alerts.refresh"
+					>
+						Refresh Alerts
+					</button>
+					<button
+						className="run-button"
+						id="createAlertPageButton"
+						type="button"
+						data-i18n="alerts.create"
+					>
+						Create Alert
+					</button>
+				</div>
 			</div>
-			<div id="alertList">
-				<p className="alerts-empty">
-					No alert rules yet. Create one from the current query.
-				</p>
+
+			<div className="alert-summary-grid" id="alertSummary" aria-live="polite">
+				<SummaryCard id="alertSummaryTotal" label="alerts.summaryPolicies" />
+				<SummaryCard id="alertSummaryFiring" label="alerts.summaryFiring" />
+				<SummaryCard id="alertSummaryEnabled" label="alerts.summaryEnabled" />
+				<SummaryCard
+					id="alertSummaryNotifications"
+					label="alerts.summaryNotifications"
+				/>
+			</div>
+
+			<div className="alert-info-banner">
+				<span className="info-icon" aria-hidden="true">
+					i
+				</span>
+				<div>
+					<strong data-i18n="alerts.localEvaluation">
+						Evaluated locally from Docker logs
+					</strong>
+					<p data-i18n="alerts.localEvaluationDescription">
+						Rules use the shared log stream. Webhook URLs are never shown in this list.
+					</p>
+				</div>
+			</div>
+
+			<div className="alert-list-panel">
+				<div className="alert-list-toolbar">
+					<label className="alert-search">
+						<span aria-hidden="true">⌕</span>
+						<span className="sr-only" data-i18n="alerts.searchLabel">
+							Search alert policies
+						</span>
+						<input
+							id="alertSearchInput"
+							type="search"
+							data-i18n-placeholder="alerts.searchPlaceholder"
+							placeholder="Search alert policies…"
+						/>
+					</label>
+					<label className="alert-status-filter">
+						<span data-i18n="alerts.statusFilter">Status</span>
+						<select
+							id="alertStatusFilter"
+							aria-label="Alert status"
+							data-i18n-aria-label="alerts.statusFilter"
+						>
+							<option value="all" data-i18n="alerts.allStatuses">All statuses</option>
+							<option value="FIRING" data-i18n="alerts.firing">Firing</option>
+							<option value="OK" data-i18n="alerts.ok">OK</option>
+							<option value="PAUSED" data-i18n="alerts.paused">Paused</option>
+						</select>
+					</label>
+				</div>
+				<div className="alert-list-heading">
+					<h2 data-i18n="alerts.title">Log Alerts</h2>
+					<span id="alertListCount" />
+				</div>
+				<div id="alertList">
+					<p className="alerts-empty" data-i18n="alerts.empty">
+						No alert rules yet. Create one from the current query.
+					</p>
+				</div>
 			</div>
 		</section>
+	);
+}
+
+function SummaryCard({ id, label }: { id: string; label: string }): Node {
+	return (
+		<div className="alert-summary-card">
+			<span data-i18n={label}>{label}</span>
+			<strong id={id}>—</strong>
+			<small id={`${id}Description`} />
+		</div>
+	);
+}
+
+function NavigationSection({
+	id,
+	labelKey,
+	children,
+}: {
+	id: string;
+	labelKey: string;
+	children: Child | Child[];
+}): Node {
+	return (
+		<section className="nav-section" data-nav-section>
+			<button
+				className="nav-section-toggle"
+				type="button"
+				aria-expanded="true"
+				aria-controls={`${id}Items`}
+			>
+				<span data-i18n={labelKey}>{labelKey}</span>
+				<svg className="nav-chevron" viewBox="0 0 24 24" aria-hidden="true">
+					<path d="m6 15 6-6 6 6" />
+				</svg>
+			</button>
+			<div className="nav-section-items" id={`${id}Items`}>
+				{children}
+			</div>
+		</section>
+	);
+}
+
+function NavigationItem({
+	id,
+	labelKey,
+	path,
+	view,
+	section,
+}: {
+	id: string;
+	labelKey: string;
+	path: string;
+	view?: "explorer" | "alerts";
+	section?: "timeline" | "fields";
+}): Node {
+	return (
+		<button
+			className={`side-nav-link${view === "explorer" ? " active" : ""}`}
+			id={id}
+			type="button"
+			aria-current={view === "explorer" ? "location" : undefined}
+			data-nav-view={view}
+			data-nav-section-target={section}
+		>
+			<svg viewBox="0 0 24 24" aria-hidden="true">
+				<path d={path} />
+			</svg>
+			<span data-i18n={labelKey}>{labelKey}</span>
+		</button>
 	);
 }
 
