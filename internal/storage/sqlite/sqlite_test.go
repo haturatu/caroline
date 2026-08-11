@@ -47,7 +47,7 @@ func TestStoreWritesAndDeduplicatesBatch(t *testing.T) {
 		t.Fatalf("duplicate WriteBatch accepted=%v err=%v", accepted, err)
 	}
 
-	entries, err := store.SearchEntries(context.Background(), explorer.SearchRequest{From: when.Add(-time.Minute), To: when.Add(time.Minute), Sort: "desc"})
+	entries, _, err := store.SearchEntries(context.Background(), explorer.SearchRequest{From: when.Add(-time.Minute), To: when.Add(time.Minute), Sort: "desc"})
 	if err != nil {
 		t.Fatalf("SearchEntries: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestStoreCleanupRemovesOldEntriesAndPayloadOverBudget(t *testing.T) {
 	if err != nil || deleted != 1 {
 		t.Fatalf("Cleanup by budget deleted=%d err=%v, want 1", deleted, err)
 	}
-	remaining, err := store.SearchEntries(context.Background(), explorer.SearchRequest{From: base.Add(-time.Hour), To: base.Add(time.Hour)})
+	remaining, _, err := store.SearchEntries(context.Background(), explorer.SearchRequest{From: base.Add(-time.Hour), To: base.Add(time.Hour)})
 	if err != nil || len(remaining) != 1 || remaining[0].InsertID != "new-2" {
 		t.Fatalf("unexpected remaining entries: %#v err=%v", remaining, err)
 	}
@@ -200,7 +200,7 @@ func TestStoreCleanupHonorsSourceAndMinBoundaries(t *testing.T) {
 	if err != nil || deleted != 1 {
 		t.Fatalf("source cleanup deleted=%d err=%v, want 1", deleted, err)
 	}
-	remaining, err := store.SearchEntries(context.Background(), explorer.SearchRequest{From: base.Add(-2 * time.Hour), To: base})
+	remaining, _, err := store.SearchEntries(context.Background(), explorer.SearchRequest{From: base.Add(-2 * time.Hour), To: base})
 	if err != nil {
 		t.Fatalf("SearchEntries after source cleanup: %v", err)
 	}
@@ -212,12 +212,81 @@ func TestStoreCleanupHonorsSourceAndMinBoundaries(t *testing.T) {
 	if err != nil || deleted != 2 {
 		t.Fatalf("min cleanup deleted=%d err=%v, want 2", deleted, err)
 	}
-	remaining, err = store.SearchEntries(context.Background(), explorer.SearchRequest{From: base.Add(-2 * time.Hour), To: base})
+	remaining, _, err = store.SearchEntries(context.Background(), explorer.SearchRequest{From: base.Add(-2 * time.Hour), To: base})
 	if err != nil {
 		t.Fatalf("SearchEntries after min cleanup: %v", err)
 	}
 	if len(remaining) != 1 || remaining[0].InsertID != "source-new" {
 		t.Fatalf("min cleanup remaining=%#v, want source-new only", remaining)
+	}
+}
+
+func TestSearchEntriesBoundsMemoryToMaxEntries(t *testing.T) {
+	store, err := OpenMemory()
+	if err != nil {
+		t.Fatalf("OpenMemory: %v", err)
+	}
+	defer store.Close()
+
+	base := time.Date(2026, 8, 11, 12, 0, 0, 0, time.UTC)
+	const total = explorer.MaxEntries + 1000
+	for start := 0; start < total; start += 2500 {
+		end := min(start+2500, total)
+		entries := make([]explorer.Entry, 0, end-start)
+		for index := start; index < end; index++ {
+			payload := "payload"
+			if index == 0 {
+				payload = "oldest unique needle"
+			}
+			entries = append(entries, explorer.Entry{
+				InsertID:  fmt.Sprintf("entry-%06d", index),
+				Timestamp: base.Add(time.Duration(index) * time.Millisecond),
+				Severity:  "INFO", TextPayload: payload, Summary: payload,
+				Resource: explorer.Resource{Labels: map[string]string{
+					"node_id": "node-1", "node_name": "server-a",
+					"container_id": "container-1", "container_name": "api",
+				}},
+			})
+		}
+		accepted, writeErr := store.WriteBatch(context.Background(), explorer.EntryBatch{
+			AgentID: "agent-1", BootID: "boot-memory", Sequence: uint64(start / 2500), Entries: entries,
+		})
+		if writeErr != nil || !accepted {
+			t.Fatalf("WriteBatch(%d) accepted=%v err=%v", start, accepted, writeErr)
+		}
+	}
+
+	entries, truncated, err := store.SearchEntries(context.Background(), explorer.SearchRequest{From: base.Add(-time.Minute), To: base.Add(time.Hour)})
+	if err != nil {
+		t.Fatalf("SearchEntries: %v", err)
+	}
+	if len(entries) != explorer.MaxEntries {
+		t.Fatalf("SearchEntries loaded %d rows, want bounded scan of %d", len(entries), explorer.MaxEntries)
+	}
+	if !truncated {
+		t.Fatal("SearchEntries did not report additional matching rows")
+	}
+	if entries[0].InsertID != "entry-050999" || entries[len(entries)-1].InsertID != "entry-001000" {
+		t.Fatalf("descending bounded scan kept wrong range: first=%q last=%q", entries[0].InsertID, entries[len(entries)-1].InsertID)
+	}
+	response, err := explorer.NewStoreService(store).Search(context.Background(), explorer.SearchRequest{
+		From: base.Add(-time.Minute), To: base.Add(time.Hour), Limit: 1,
+	})
+	if err != nil {
+		t.Fatalf("store service Search: %v", err)
+	}
+	if !response.Truncated || len(response.Entries) != 1 || response.Entries[0].InsertID != "entry-050999" {
+		t.Fatalf("bounded service response = %#v, want newest entry and truncated=true", response)
+	}
+
+	entries, truncated, err = store.SearchEntries(context.Background(), explorer.SearchRequest{
+		From: base.Add(-time.Minute), To: base.Add(time.Hour), Query: "needle",
+	})
+	if err != nil {
+		t.Fatalf("SearchEntries with sparse query: %v", err)
+	}
+	if truncated || len(entries) != 1 || entries[0].InsertID != "entry-000000" {
+		t.Fatalf("sparse query result = %#v truncated=%v, want oldest matching entry", entries, truncated)
 	}
 }
 
@@ -254,7 +323,7 @@ func TestSearchEntriesAppliesIndexedFiltersAcrossChunks(t *testing.T) {
 		From: base.Add(-time.Minute), To: base.Add(30 * time.Minute), Severity: "ERROR", Stream: "stderr",
 		SelectedNodes: map[string]bool{"server-a": true}, Sort: "desc",
 	}
-	entries, err = store.SearchEntries(context.Background(), request)
+	entries, _, err = store.SearchEntries(context.Background(), request)
 	if err != nil {
 		t.Fatalf("SearchEntries: %v", err)
 	}
