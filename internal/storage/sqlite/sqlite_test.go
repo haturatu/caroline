@@ -79,3 +79,38 @@ func TestStoreNodeAndNonceOperations(t *testing.T) {
 		t.Fatalf("RememberNonce duplicate accepted=%v err=%v", accepted, err)
 	}
 }
+
+func TestStoreCleanupRemovesOldEntriesAndPayloadOverBudget(t *testing.T) {
+	store, err := OpenMemory()
+	if err != nil {
+		t.Fatalf("OpenMemory: %v", err)
+	}
+	defer store.Close()
+
+	base := time.Date(2026, 8, 11, 12, 0, 0, 0, time.UTC)
+	entries := []explorer.Entry{
+		{InsertID: "old", Timestamp: base.Add(-time.Hour), Severity: "INFO", TextPayload: "old payload", Summary: "old", Resource: explorer.Resource{Labels: map[string]string{}}},
+		{InsertID: "new-1", Timestamp: base, Severity: "INFO", TextPayload: "first payload", Summary: "first", Resource: explorer.Resource{Labels: map[string]string{}}},
+		{InsertID: "new-2", Timestamp: base.Add(time.Second), Severity: "INFO", TextPayload: "second payload", Summary: "second", Resource: explorer.Resource{Labels: map[string]string{}}},
+	}
+	for index, entry := range entries {
+		accepted, writeErr := store.WriteBatch(context.Background(), explorer.EntryBatch{
+			AgentID: "agent-1", BootID: "boot-1", Sequence: uint64(index + 1), Entries: []explorer.Entry{entry},
+		})
+		if writeErr != nil || !accepted {
+			t.Fatalf("WriteBatch(%s) accepted=%v err=%v", entry.InsertID, accepted, writeErr)
+		}
+	}
+	deleted, err := store.Cleanup(context.Background(), base.Add(-time.Minute), 0)
+	if err != nil || deleted != 1 {
+		t.Fatalf("Cleanup by age deleted=%d err=%v, want 1", deleted, err)
+	}
+	deleted, err = store.Cleanup(context.Background(), time.Time{}, 50)
+	if err != nil || deleted != 1 {
+		t.Fatalf("Cleanup by budget deleted=%d err=%v, want 1", deleted, err)
+	}
+	remaining, err := store.SearchEntries(context.Background(), explorer.SearchRequest{From: base.Add(-time.Hour), To: base.Add(time.Hour)})
+	if err != nil || len(remaining) != 1 || remaining[0].InsertID != "new-2" {
+		t.Fatalf("unexpected remaining entries: %#v err=%v", remaining, err)
+	}
+}

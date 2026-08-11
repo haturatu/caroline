@@ -24,6 +24,74 @@ type Store struct {
 	mu   sync.Mutex
 }
 
+// Cleanup removes log bodies older than before and, when maxBytes is set,
+// removes the oldest rows until the logical payload budget is met. SQLite
+// pages are reclaimed by SQLite according to its normal journaling policy;
+// the budget intentionally measures retained log payload rather than the
+// database file's transient WAL size.
+func (s *Store) Cleanup(ctx context.Context, before time.Time, maxBytes int64) (int, error) {
+	deleted := 0
+	err := s.withConn(ctx, func(conn *sqlite.Conn) error {
+		var txErr error
+		end, err := sqlitex.ImmediateTransaction(conn)
+		if err != nil {
+			return err
+		}
+		defer end(&txErr)
+
+		if err := exec(conn, `DELETE FROM logs WHERE timestamp_ns < ?1`, []any{before.UnixNano()}); err != nil {
+			txErr = err
+			return err
+		}
+		deleted += conn.Changes()
+		if maxBytes <= 0 {
+			return nil
+		}
+
+		for {
+			var logicalBytes int64
+			if err := execRows(conn, `
+SELECT COALESCE(SUM(
+    length(COALESCE(text_payload, '')) + length(COALESCE(json_payload, '')) +
+    length(COALESCE(labels_json, '')) + length(COALESCE(resource_labels_json, '')) +
+    length(COALESCE(summary, ''))
+), 0) FROM logs`, nil, func(stmt *sqlite.Stmt) error {
+				logicalBytes = stmt.ColumnInt64(0)
+				return nil
+			}); err != nil {
+				txErr = err
+				return err
+			}
+			if logicalBytes <= maxBytes {
+				return nil
+			}
+
+			ids := make([]string, 0, 1)
+			if err := execRows(conn, `
+SELECT insert_id FROM logs
+ORDER BY timestamp_ns ASC, insert_id ASC
+LIMIT 1`, nil, func(stmt *sqlite.Stmt) error {
+				ids = append(ids, stmt.ColumnText(0))
+				return nil
+			}); err != nil {
+				txErr = err
+				return err
+			}
+			if len(ids) == 0 {
+				return nil
+			}
+			for _, id := range ids {
+				if err := exec(conn, `DELETE FROM logs WHERE insert_id = ?1`, []any{id}); err != nil {
+					txErr = err
+					return err
+				}
+				deleted += conn.Changes()
+			}
+		}
+	})
+	return deleted, err
+}
+
 var _ explorer.LogStore = (*Store)(nil)
 var _ node.Store = (*Store)(nil)
 

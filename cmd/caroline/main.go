@@ -6,7 +6,9 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"caroline/internal/alert"
 	"caroline/internal/alert/notifier"
@@ -82,7 +84,83 @@ func main() {
 
 	server := httpserver.New(explorerService, nil, streamManager, alertEngine)
 	server.ConfigureHub(store, nodeService, ingestService, broker)
+	retention := parseDurationEnv("CAROLINE_RETENTION")
+	maxStorageBytes := parseByteSizeEnv("CAROLINE_MAX_STORAGE_SIZE")
+	if retention > 0 || maxStorageBytes > 0 {
+		retentionContext, cancelRetention := context.WithCancel(context.Background())
+		defer cancelRetention()
+		go runRetention(retentionContext, store, retention, maxStorageBytes)
+	}
 	if err := server.Run(port); err != nil {
 		log.Fatal(err)
 	}
+}
+
+type retentionStore interface {
+	Cleanup(context.Context, time.Time, int64) (int, error)
+}
+
+func runRetention(ctx context.Context, store retentionStore, retention time.Duration, maxStorageBytes int64) {
+	cleanup := func() {
+		before := time.Time{}
+		if retention > 0 {
+			before = time.Now().UTC().Add(-retention)
+		}
+		deleted, err := store.Cleanup(ctx, before, maxStorageBytes)
+		if err != nil && ctx.Err() == nil {
+			log.Printf("log retention cleanup failed: %v", err)
+			return
+		}
+		if deleted > 0 {
+			log.Printf("log retention cleanup removed %d entries", deleted)
+		}
+	}
+	cleanup()
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			cleanup()
+		}
+	}
+}
+
+func parseDurationEnv(key string) time.Duration {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return 0
+	}
+	parsed, err := time.ParseDuration(value)
+	if err != nil || parsed <= 0 {
+		log.Printf("ignoring invalid %s=%q; expected a positive duration", key, value)
+		return 0
+	}
+	return parsed
+}
+
+func parseByteSizeEnv(key string) int64 {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return 0
+	}
+	units := map[string]int64{"b": 1, "kb": 1 << 10, "mb": 1 << 20, "gb": 1 << 30, "tb": 1 << 40}
+	lower := strings.ToLower(value)
+	multiplier := int64(1)
+	number := lower
+	for suffix, factor := range units {
+		if strings.HasSuffix(lower, suffix) {
+			multiplier = factor
+			number = strings.TrimSpace(strings.TrimSuffix(lower, suffix))
+			break
+		}
+	}
+	parsed, err := strconv.ParseInt(number, 10, 64)
+	if err != nil || parsed <= 0 || parsed > (1<<62)/multiplier {
+		log.Printf("ignoring invalid %s=%q; expected a positive byte size", key, value)
+		return 0
+	}
+	return parsed * multiplier
 }

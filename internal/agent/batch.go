@@ -27,8 +27,8 @@ type BatchQueue struct {
 	wake          chan struct{}
 }
 
-func NewBatchQueue(agentID, bootID string, maxEntries, maxBytes, capacity int, flushInterval time.Duration) *BatchQueue {
-	return &BatchQueue{agentID: agentID, bootID: bootID, maxEntries: maxEntries, maxBytes: maxBytes, capacity: capacity, flushInterval: flushInterval, containers: make(map[string]explorer.ContainerInfo), wake: make(chan struct{}, 1)}
+func NewBatchQueue(agentID, bootID string, maxEntries, maxBytes, capacity int, flushInterval time.Duration, initialSequence uint64) *BatchQueue {
+	return &BatchQueue{agentID: agentID, bootID: bootID, maxEntries: maxEntries, maxBytes: maxBytes, capacity: capacity, flushInterval: flushInterval, containers: make(map[string]explorer.ContainerInfo), wake: make(chan struct{}, 1), sequence: initialSequence}
 }
 
 func (q *BatchQueue) Add(entry explorer.Entry) error {
@@ -67,6 +67,12 @@ func (q *BatchQueue) Len() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	return len(q.entries)
+}
+
+func (q *BatchQueue) Sequence() uint64 {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.sequence
 }
 
 func (q *BatchQueue) Flush() (explorer.EntryBatch, bool) {
