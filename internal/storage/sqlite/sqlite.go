@@ -19,6 +19,7 @@ import (
 const searchChunkSize = 1000
 
 var errNotFound = errors.New("sqlite row was not found")
+var errSearchEntriesLimit = errors.New("sqlite search entry limit reached")
 
 type Store struct {
 	conn *sqlite.Conn
@@ -312,7 +313,7 @@ ON CONFLICT(node_id, container_id) DO UPDATE SET
 	return accepted, err
 }
 
-func (s *Store) SearchEntries(ctx context.Context, request explorer.SearchRequest) ([]explorer.Entry, error) {
+func (s *Store) SearchEntries(ctx context.Context, request explorer.SearchRequest) ([]explorer.Entry, bool, error) {
 	from := request.From
 	to := request.To
 	if from.IsZero() {
@@ -322,8 +323,16 @@ func (s *Store) SearchEntries(ctx context.Context, request explorer.SearchReques
 		to = time.Now().UTC()
 	}
 	entries := make([]explorer.Entry, 0)
+	truncated := false
 	err := s.withConn(ctx, func(conn *sqlite.Conn) error {
 		baseWhere, baseArgs := searchWhere(request, from, to)
+		ascending := strings.EqualFold(request.Sort, "asc")
+		comparison := "<"
+		order := "DESC"
+		if ascending {
+			comparison = ">"
+			order = "ASC"
+		}
 		var lastTimestamp int64
 		var lastInsertID string
 		hasCursor := false
@@ -331,7 +340,7 @@ func (s *Store) SearchEntries(ctx context.Context, request explorer.SearchReques
 			where := baseWhere
 			args := append([]any(nil), baseArgs...)
 			if hasCursor {
-				where += " AND (timestamp_ns > ? OR (timestamp_ns = ? AND insert_id > ?))"
+				where += " AND (timestamp_ns " + comparison + " ? OR (timestamp_ns = ? AND insert_id " + comparison + " ?))"
 				args = append(args, lastTimestamp, lastTimestamp, lastInsertID)
 			}
 			query := `
@@ -339,25 +348,30 @@ SELECT insert_id, timestamp_ns, severity, log_name, stream, text_payload,
        json_payload, labels_json, resource_labels_json, summary
 FROM logs
 WHERE ` + where + `
-ORDER BY timestamp_ns ASC, insert_id ASC
+ORDER BY timestamp_ns ` + order + `, insert_id ` + order + `
 LIMIT ?`
-			chunkStart := len(entries)
+			rowsRead := 0
 			if err := execRows(conn, query, append(args, searchChunkSize), func(stmt *sqlite.Stmt) error {
+				rowsRead++
 				entry, err := entryFromStmt(stmt)
 				if err != nil {
 					return err
 				}
-				entries = append(entries, entry)
 				lastTimestamp = stmtTimestamp(entry)
 				lastInsertID = entry.InsertID
+				if !explorer.MatchesFilters(entry, request.Query, request.Severity, request.Stream) {
+					return nil
+				}
+				if len(entries) == explorer.MaxEntries {
+					truncated = true
+					return errSearchEntriesLimit
+				}
+				entries = append(entries, entry)
 				return nil
-			}); err != nil {
+			}); err != nil && !errors.Is(err, errSearchEntriesLimit) {
 				return err
 			}
-			if len(entries)-chunkStart < searchChunkSize {
-				break
-			}
-			if len(entries) >= explorer.MaxEntries {
+			if truncated || rowsRead < searchChunkSize {
 				break
 			}
 			hasCursor = true
@@ -365,7 +379,7 @@ LIMIT ?`
 		return nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	sort.Slice(entries, func(i, j int) bool {
 		if entries[i].Timestamp.Equal(entries[j].Timestamp) {
@@ -379,7 +393,7 @@ LIMIT ?`
 		}
 		return entries[i].Timestamp.After(entries[j].Timestamp)
 	})
-	return entries, err
+	return entries, truncated, nil
 }
 
 func searchWhere(request explorer.SearchRequest, from, to time.Time) (string, []any) {

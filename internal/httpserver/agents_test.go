@@ -133,7 +133,7 @@ func TestAgentRegistrationAndCompressedIngest(t *testing.T) {
 	if err != nil || len(containers) != 1 || containers[0].LoggingDriver != "local" || containers[0].LoggingOptions["max-file"] != "3" || containers[0].OldestLogAt.IsZero() {
 		t.Fatalf("unexpected heartbeat metadata: %#v err=%v", containers, err)
 	}
-	entries, err := store.SearchEntries(context.Background(), explorer.SearchRequest{From: now.Add(-time.Minute), To: now.Add(time.Minute)})
+	entries, _, err := store.SearchEntries(context.Background(), explorer.SearchRequest{From: now.Add(-time.Minute), To: now.Add(time.Minute)})
 	if err != nil || len(entries) != 1 || entries[0].Resource.Labels["node_name"] != "server-a" {
 		t.Fatalf("unexpected stored entries: %#v err=%v", entries, err)
 	}

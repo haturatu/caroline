@@ -128,7 +128,7 @@ type EntryBatch struct {
 // Implementations must make WriteBatch idempotent for the batch identity.
 type LogStore interface {
 	WriteBatch(context.Context, EntryBatch) (bool, error)
-	SearchEntries(context.Context, SearchRequest) ([]Entry, error)
+	SearchEntries(context.Context, SearchRequest) (entries []Entry, truncated bool, err error)
 	ListContainers(context.Context) ([]ContainerInfo, error)
 }
 

@@ -169,7 +169,7 @@ func (s *Service) Search(ctx context.Context, request SearchRequest) (Response, 
 }
 
 func (s *Service) searchStore(ctx context.Context, request SearchRequest) (Response, error) {
-	entries, err := s.store.SearchEntries(ctx, request)
+	entries, truncated, err := s.store.SearchEntries(ctx, request)
 	if err != nil {
 		return Response{}, err
 	}
@@ -188,6 +188,7 @@ func (s *Service) searchStore(ctx context.Context, request SearchRequest) (Respo
 		Approximate: false,
 		LogTail:     MaxLogTail,
 		EntryLimit:  MaxEntries,
+		Truncated:   truncated,
 	}
 	for _, entry := range entries {
 		if !MatchesFilters(entry, request.Query, request.Severity, request.Stream) {
