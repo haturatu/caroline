@@ -7,16 +7,17 @@ import (
 )
 
 type RegisterRequest struct {
-	ProtocolVersion int    `json:"protocolVersion"`
-	AgentVersion    string `json:"agentVersion"`
-	EnrollmentToken string `json:"enrollmentToken"`
-	AgentID         string `json:"agentId"`
-	PublicKey       []byte `json:"publicKey"`
-	Fingerprint     string `json:"fingerprint"`
-	Hostname        string `json:"hostname"`
-	OS              string `json:"os"`
-	Architecture    string `json:"architecture"`
-	Nonce           string `json:"nonce"`
+	ProtocolVersion int      `json:"protocolVersion"`
+	AgentVersion    string   `json:"agentVersion"`
+	EnrollmentToken string   `json:"enrollmentToken"`
+	AgentID         string   `json:"agentId"`
+	PublicKey       []byte   `json:"publicKey"`
+	Fingerprint     string   `json:"fingerprint"`
+	Hostname        string   `json:"hostname"`
+	OS              string   `json:"os"`
+	Architecture    string   `json:"architecture"`
+	Nonce           string   `json:"nonce"`
+	Capabilities    []string `json:"capabilities,omitempty"`
 }
 
 type RegisterResponse struct {
@@ -28,6 +29,7 @@ type RegisterResponse struct {
 	Nonce           string    `json:"nonce"`
 	ExpiresAt       time.Time `json:"expiresAt"`
 	Signature       []byte    `json:"signature"`
+	Capabilities    []string  `json:"capabilities,omitempty"`
 }
 
 type SessionRequest struct {
@@ -45,6 +47,7 @@ type SessionResponse struct {
 	Nonce           string    `json:"nonce"`
 	ExpiresAt       time.Time `json:"expiresAt"`
 	Signature       []byte    `json:"signature"`
+	Capabilities    []string  `json:"capabilities,omitempty"`
 }
 
 type LogBatch struct {

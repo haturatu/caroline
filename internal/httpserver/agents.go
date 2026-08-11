@@ -14,6 +14,7 @@ import (
 	"caroline/internal/agentproto"
 	"caroline/internal/ingest"
 	"caroline/internal/node"
+	"github.com/klauspost/compress/zstd"
 )
 
 const (
@@ -196,6 +197,15 @@ func readAgentBody(w http.ResponseWriter, r *http.Request, limit int64) ([]byte,
 		}
 		defer gzipReader.Close()
 		reader = io.LimitReader(gzipReader, limit)
+	} else if encoding == "zstd" {
+		decoder, err := zstd.NewReader(r.Body)
+		if err != nil {
+			return nil, fmt.Errorf("invalid zstd body: %w", err)
+		}
+		defer decoder.Close()
+		reader = io.LimitReader(decoder, limit)
+	} else if encoding != "" && encoding != "identity" {
+		return nil, fmt.Errorf("unsupported content encoding %q", encoding)
 	}
 	body, err := io.ReadAll(reader)
 	if err != nil {

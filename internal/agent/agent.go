@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
@@ -17,6 +18,8 @@ type Agent struct {
 	sender    *Sender
 	spool     *Spool
 	startedAt time.Time
+	sequence  uint64
+	entryID   uint64
 }
 
 func New(config Config, identity Identity) (*Agent, error) {
@@ -32,6 +35,11 @@ func (a *Agent) Run(ctx context.Context) error {
 	dockerClient := docker.NewClient(a.config.DockerHost)
 	manager := logstream.NewManagerForNode(dockerClient, a.identity.AgentID, a.identity.Hostname)
 	defer manager.Close()
+	go func() {
+		if err := a.sender.ControlLoop(ctx); err != nil && ctx.Err() == nil {
+			log.Printf("agent control stream stopped: %v", err)
+		}
+	}()
 	for {
 		if err := a.runCollection(ctx, manager, dockerClient); err != nil && ctx.Err() == nil {
 			log.Printf("agent collection stopped: %v", err)
@@ -53,7 +61,8 @@ func (a *Agent) runCollection(ctx context.Context, manager *logstream.Manager, s
 		return err
 	}
 	defer subscription.Close()
-	queue := NewBatchQueue(a.identity.AgentID, a.identity.BootID, a.config.MaxBatchEntries, a.config.MaxBatchBytes, a.config.QueueCapacity, a.config.FlushInterval)
+	queue := NewBatchQueue(a.identity.AgentID, a.identity.BootID, a.config.MaxBatchEntries, a.config.MaxBatchBytes, a.config.QueueCapacity, a.config.FlushInterval, a.sequence)
+	defer func() { a.sequence = queue.Sequence() }()
 	if err := a.refreshContainers(ctx, source, queue); err != nil {
 		log.Printf("agent container discovery failed: %v", err)
 	}
@@ -72,6 +81,8 @@ func (a *Agent) runCollection(ctx context.Context, manager *logstream.Manager, s
 			if !open {
 				return nil
 			}
+			a.entryID++
+			entry.InsertID = fmt.Sprintf("%s/%s/%020d", a.identity.AgentID, a.identity.BootID, a.entryID)
 			if err := queue.Add(entry); err != nil {
 				if batch, ok := queue.Flush(); ok {
 					if spoolErr := a.spool.Write(batch); spoolErr != nil {

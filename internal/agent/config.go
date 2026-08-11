@@ -26,6 +26,7 @@ type Config struct {
 	HeartbeatInterval  time.Duration
 	DiscoveryInterval  time.Duration
 	TrustHubOnFirstUse bool
+	Compression        string
 }
 
 func ConfigFromEnv() (Config, error) {
@@ -47,6 +48,7 @@ func ConfigFromEnv() (Config, error) {
 		HeartbeatInterval:  durationEnv("CAROLINE_AGENT_HEARTBEAT_INTERVAL", 15*time.Second),
 		DiscoveryInterval:  durationEnv("CAROLINE_AGENT_DISCOVERY_INTERVAL", 15*time.Second),
 		TrustHubOnFirstUse: strings.EqualFold(os.Getenv("CAROLINE_AGENT_TRUST_ON_FIRST_USE"), "true"),
+		Compression:        strings.ToLower(firstEnv("CAROLINE_AGENT_COMPRESSION", "gzip")),
 	}
 	if encoded := strings.TrimSpace(os.Getenv("CAROLINE_HUB_PUBLIC_KEY")); encoded != "" {
 		key, err := base64.RawStdEncoding.DecodeString(encoded)
@@ -63,6 +65,9 @@ func ConfigFromEnv() (Config, error) {
 	}
 	if config.MaxBatchBytes < 1024 || config.MaxBatchBytes > 1<<20 {
 		return Config{}, fmt.Errorf("CAROLINE_AGENT_MAX_BATCH_BYTES must be between 1024 and 1048576")
+	}
+	if config.Compression != "identity" && config.Compression != "gzip" && config.Compression != "zstd" {
+		return Config{}, fmt.Errorf("CAROLINE_AGENT_COMPRESSION must be identity, gzip, or zstd")
 	}
 	return config, nil
 }

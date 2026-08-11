@@ -1,6 +1,9 @@
 package agent
 
 import (
+	"bufio"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
@@ -8,12 +11,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
 
 	"caroline/internal/agentproto"
 	"caroline/internal/explorer"
+	"github.com/klauspost/compress/zstd"
 )
 
 type Sender struct {
@@ -26,6 +31,8 @@ type Sender struct {
 	sessionExpiry time.Time
 	hubPublicKey  ed25519.PublicKey
 }
+
+var agentCapabilities = append([]string(nil), agentproto.SupportedCapabilities...)
 
 func NewSender(config Config, identity Identity) *Sender {
 	return &Sender{config: config, identity: identity, client: &http.Client{Timeout: 20 * time.Second}, hubPublicKey: append(ed25519.PublicKey(nil), config.HubPublicKey...)}
@@ -73,12 +80,79 @@ func (s *Sender) Heartbeat(ctx context.Context, heartbeat agentproto.Heartbeat) 
 	return err
 }
 
+func (s *Sender) ControlLoop(ctx context.Context) error {
+	for {
+		if err := s.openControlStream(ctx); err != nil && ctx.Err() == nil {
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(time.Second):
+			}
+		}
+		if ctx.Err() != nil {
+			return nil
+		}
+	}
+}
+
+func (s *Sender) openControlStream(ctx context.Context) error {
+	s.mu.Lock()
+	if err := s.ensureSessionLocked(ctx); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	path := "/api/v1/agent/events?agentId=" + url.QueryEscape(s.identity.AgentID)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, s.config.HubURL+path, nil)
+	if err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	if err := agentproto.ApplyRequestHeaders(request, s.identity.Private(), nil, time.Now().UTC()); err != nil {
+		s.mu.Unlock()
+		return err
+	}
+	s.mu.Unlock()
+	request.Header.Set("Accept", "text/event-stream")
+	response, err := s.client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusUnauthorized {
+		s.mu.Lock()
+		refreshErr := s.refreshSessionLocked(ctx)
+		s.mu.Unlock()
+		return refreshErr
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 8*1024))
+		return fmt.Errorf("hub control stream returned %s: %s", response.Status, strings.TrimSpace(string(body)))
+	}
+	scanner := bufio.NewScanner(response.Body)
+	scanner.Buffer(make([]byte, 1024), 64*1024)
+	for scanner.Scan() {
+		if ctx.Err() != nil {
+			return nil
+		}
+	}
+	return scanner.Err()
+}
+
 func (s *Sender) ensureSessionLocked(ctx context.Context) error {
 	if s.sessionID != "" && time.Now().UTC().Before(s.sessionExpiry.Add(-time.Minute)) {
 		return nil
 	}
 	if strings.TrimSpace(s.config.EnrollmentToken) != "" {
-		return s.registerLocked(ctx)
+		if err := s.registerLocked(ctx); err != nil {
+			// A Compose environment may keep the single-use token after the
+			// Agent process restarts. If the key is already registered, resume
+			// with a signed session instead of attempting registration again.
+			if errors.Is(err, errUnauthorized) {
+				return s.refreshSessionLocked(ctx)
+			}
+			return err
+		}
+		return nil
 	}
 	return s.refreshSessionLocked(ctx)
 }
@@ -93,7 +167,8 @@ func (s *Sender) registerLocked(ctx context.Context) error {
 		EnrollmentToken: s.config.EnrollmentToken, AgentID: s.identity.AgentID,
 		PublicKey: s.identity.PublicKey, Fingerprint: s.identity.Fingerprint,
 		Hostname: s.identity.Hostname, OS: s.identity.OS, Architecture: s.identity.Architecture,
-		Nonce: nonce,
+		Nonce:        nonce,
+		Capabilities: agentCapabilities,
 	})
 	if err != nil {
 		return err
@@ -164,11 +239,18 @@ func (s *Sender) doSignedLocked(ctx context.Context, method, path string, body [
 }
 
 func (s *Sender) doJSONLocked(ctx context.Context, method, path string, body []byte, signed bool) ([]byte, error) {
-	request, err := http.NewRequestWithContext(ctx, method, s.config.HubURL+path, strings.NewReader(string(body)))
+	transportBody, encoding, err := encodeBody(body, s.config.Compression)
+	if err != nil {
+		return nil, err
+	}
+	request, err := http.NewRequestWithContext(ctx, method, s.config.HubURL+path, bytes.NewReader(transportBody))
 	if err != nil {
 		return nil, err
 	}
 	request.Header.Set("Content-Type", "application/json")
+	if encoding != "identity" {
+		request.Header.Set("Content-Encoding", encoding)
+	}
 	if signed {
 		if err := agentproto.ApplyRequestHeaders(request, s.identity.Private(), body, time.Now().UTC()); err != nil {
 			return nil, err
@@ -190,4 +272,30 @@ func (s *Sender) doJSONLocked(ctx context.Context, method, path string, body []b
 		return nil, fmt.Errorf("hub returned %s: %s", response.Status, strings.TrimSpace(string(data)))
 	}
 	return data, nil
+}
+
+func encodeBody(body []byte, encoding string) ([]byte, string, error) {
+	switch encoding {
+	case "", "identity":
+		return body, "identity", nil
+	case "gzip":
+		var output bytes.Buffer
+		writer := gzip.NewWriter(&output)
+		if _, err := writer.Write(body); err != nil {
+			return nil, "", err
+		}
+		if err := writer.Close(); err != nil {
+			return nil, "", err
+		}
+		return output.Bytes(), "gzip", nil
+	case "zstd":
+		writer, err := zstd.NewWriter(nil)
+		if err != nil {
+			return nil, "", err
+		}
+		defer writer.Close()
+		return writer.EncodeAll(body, nil), "zstd", nil
+	default:
+		return nil, "", fmt.Errorf("unsupported body compression %q", encoding)
+	}
 }
