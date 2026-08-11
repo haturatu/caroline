@@ -258,10 +258,25 @@
 
 	.detail-drawer {
 		inset-block-start: 0;
-		padding-block-start: max(18px, env(safe-area-inset-top));
-		padding-inline-end: max(18px, env(safe-area-inset-right));
-		padding-block-end: max(18px, env(safe-area-inset-bottom));
-		padding-inline-start: max(18px, env(safe-area-inset-left));
+		inline-size: 100%;
+		max-block-size: 100dvh;
+		padding-block-start: env(safe-area-inset-top);
+		padding-inline-end: env(safe-area-inset-right);
+		padding-block-end: env(safe-area-inset-bottom);
+		padding-inline-start: env(safe-area-inset-left);
+	}
+
+	.detail-drawer-header,
+	.detail-drawer-body {
+		padding-inline: 18px;
+	}
+
+	.detail-drawer-footer {
+		padding-inline: 18px;
+	}
+
+	.detail-meta-row {
+		grid-template-columns: minmax(110px, 140px) minmax(0, 1fr);
 	}
 
 	.page-footer {
