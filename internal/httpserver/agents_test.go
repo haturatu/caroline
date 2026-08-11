@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -63,6 +64,24 @@ func TestAgentRegistrationAndCompressedIngest(t *testing.T) {
 	var registerResponse agentproto.RegisterResponse
 	if err := json.Unmarshal(registerRecorder.Body.Bytes(), &registerResponse); err != nil {
 		t.Fatalf("decode registration: %v", err)
+	}
+	enrollToken, _, err := nodes.CreateEnrollmentToken(context.Background(), time.Minute)
+	if err != nil {
+		t.Fatalf("CreateEnrollmentToken for URL: %v", err)
+	}
+	enrollPublic, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("GenerateKey enrollment agent: %v", err)
+	}
+	enrollBody, _ := json.Marshal(agentproto.RegisterRequest{
+		ProtocolVersion: agentproto.ProtocolVersion, PublicKey: enrollPublic,
+		Hostname: "server-b", Fingerprint: "fingerprint-b", OS: "linux", Architecture: "amd64", Nonce: "enroll-nonce",
+	})
+	enrollRequest := httptest.NewRequest(http.MethodPost, "/api/v1/agent/enroll/"+strings.TrimPrefix(enrollToken, "car_enroll_"), bytes.NewReader(enrollBody))
+	enrollRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(enrollRecorder, enrollRequest)
+	if enrollRecorder.Code != http.StatusOK {
+		t.Fatalf("enrollment URL status=%d body=%s", enrollRecorder.Code, enrollRecorder.Body.String())
 	}
 
 	now := time.Now().UTC()

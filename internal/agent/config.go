@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/base64"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 
 type Config struct {
 	HubURL             string
+	EnrollURL          string
 	EnrollmentToken    string
 	HubPublicKey       []byte
 	StateDir           string
@@ -34,8 +36,27 @@ func ConfigFromEnv() (Config, error) {
 	if stateDir == "" {
 		stateDir = "/var/lib/caroline-agent"
 	}
+	hubURL := strings.TrimRight(strings.TrimSpace(os.Getenv("CAROLINE_HUB_URL")), "/")
+	enrollURL := strings.TrimSpace(os.Getenv("CAROLINE_ENROLL_URL"))
+	if enrollURL != "" {
+		parsed, err := url.Parse(enrollURL)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.Path == "" {
+			return Config{}, fmt.Errorf("CAROLINE_ENROLL_URL must be an absolute HTTP(S) URL")
+		}
+		if hubURL == "" {
+			hubURL = parsed.Scheme + "://" + parsed.Host
+		}
+	}
+	if hubURL == "" && enrollURL == "" {
+		pinnedURL, err := loadPinnedHubURL(filepath.Join(stateDir, "hub.json"))
+		if err != nil {
+			return Config{}, fmt.Errorf("load persisted Hub URL: %w", err)
+		}
+		hubURL = pinnedURL
+	}
 	config := Config{
-		HubURL:          strings.TrimRight(strings.TrimSpace(os.Getenv("CAROLINE_HUB_URL")), "/"),
+		HubURL:          hubURL,
+		EnrollURL:       enrollURL,
 		EnrollmentToken: strings.TrimSpace(os.Getenv("CAROLINE_ENROLLMENT_TOKEN")),
 		StateDir:        stateDir, DockerHost: strings.TrimSpace(os.Getenv("DOCKER_HOST")),
 		AgentVersion:       firstEnv("CAROLINE_AGENT_VERSION", "dev"),

@@ -9,11 +9,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type hubPin struct {
 	KeyID     string            `json:"keyId"`
 	PublicKey ed25519.PublicKey `json:"publicKey"`
+	HubURL    string            `json:"hubUrl,omitempty"`
 }
 
 func loadHubPublicKey(config Config) (ed25519.PublicKey, error) {
@@ -22,45 +24,64 @@ func loadHubPublicKey(config Config) (ed25519.PublicKey, error) {
 			return nil, errors.New("CAROLINE_HUB_PUBLIC_KEY has an invalid Ed25519 key length")
 		}
 		key := append(ed25519.PublicKey(nil), config.HubPublicKey...)
-		if err := saveHubPin(config.HubPinPath(), hubKeyID(key), key); err != nil {
+		if err := saveHubPin(config.HubPinPath(), hubKeyID(key), key, config.HubURL); err != nil {
 			return nil, err
 		}
 		return key, nil
 	}
-	data, err := os.ReadFile(config.HubPinPath())
-	if err == nil {
-		info, statErr := os.Stat(config.HubPinPath())
-		if statErr != nil {
-			return nil, statErr
+	pin, err := readHubPin(config.HubPinPath())
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
 		}
-		if info.Mode().Perm() != 0o600 {
-			if statErr := os.Chmod(config.HubPinPath(), 0o600); statErr != nil {
-				return nil, statErr
-			}
-		}
-		var pin hubPin
-		if err := json.Unmarshal(data, &pin); err != nil {
-			return nil, fmt.Errorf("decode Hub pin: %w", err)
-		}
-		if len(pin.PublicKey) != ed25519.PublicKeySize {
-			return nil, errors.New("persisted Hub pin has an invalid Ed25519 key length")
-		}
-		return append(ed25519.PublicKey(nil), pin.PublicKey...), nil
-	}
-	if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
-	return nil, nil
+	return append(ed25519.PublicKey(nil), pin.PublicKey...), nil
 }
 
-func saveHubPin(path, keyID string, publicKey ed25519.PublicKey) error {
+func loadPinnedHubURL(path string) (string, error) {
+	pin, err := readHubPin(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+		return "", err
+	}
+	return strings.TrimRight(strings.TrimSpace(pin.HubURL), "/"), nil
+}
+
+func readHubPin(path string) (hubPin, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return hubPin{}, err
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return hubPin{}, err
+	}
+	if info.Mode().Perm() != 0o600 {
+		if err := os.Chmod(path, 0o600); err != nil {
+			return hubPin{}, err
+		}
+	}
+	var pin hubPin
+	if err := json.Unmarshal(data, &pin); err != nil {
+		return hubPin{}, fmt.Errorf("decode Hub pin: %w", err)
+	}
+	if len(pin.PublicKey) != ed25519.PublicKeySize {
+		return hubPin{}, errors.New("persisted Hub pin has an invalid Ed25519 key length")
+	}
+	return pin, nil
+}
+
+func saveHubPin(path, keyID string, publicKey ed25519.PublicKey, hubURL string) error {
 	if len(publicKey) != ed25519.PublicKeySize {
 		return errors.New("cannot persist an invalid Hub public key")
 	}
 	if keyID == "" {
 		keyID = hubKeyID(publicKey)
 	}
-	data, err := json.MarshalIndent(hubPin{KeyID: keyID, PublicKey: publicKey}, "", "  ")
+	data, err := json.MarshalIndent(hubPin{KeyID: keyID, PublicKey: publicKey, HubURL: strings.TrimRight(strings.TrimSpace(hubURL), "/")}, "", "  ")
 	if err != nil {
 		return err
 	}

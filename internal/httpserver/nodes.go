@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -41,11 +43,32 @@ func (s *Server) handleNodes(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusCreated, map[string]any{"token": plain, "enrollment": token})
+		writeJSON(w, http.StatusCreated, map[string]any{
+			"token": plain, "enrollment": token,
+			"enrollmentUrl": buildEnrollmentURL(r, plain),
+		})
 	default:
 		w.Header().Set("Allow", "GET, HEAD, POST")
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
+}
+
+func buildEnrollmentURL(r *http.Request, token string) string {
+	base := strings.TrimRight(strings.TrimSpace(os.Getenv("CAROLINE_PUBLIC_URL")), "/")
+	if base == "" {
+		protocol := strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0])
+		if protocol != "http" && protocol != "https" {
+			protocol = "http"
+			if r.TLS != nil {
+				protocol = "https"
+			}
+		}
+		if strings.TrimSpace(r.Host) == "" {
+			return ""
+		}
+		base = protocol + "://" + r.Host
+	}
+	return base + "/api/v1/agent/enroll/" + url.PathEscape(token)
 }
 
 func (s *Server) handleNode(w http.ResponseWriter, r *http.Request) {
