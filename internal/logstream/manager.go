@@ -55,8 +55,10 @@ func (s *Subscription) Close() {
 }
 
 type Manager struct {
-	source Source
-	broker *Broker
+	source   Source
+	broker   *Broker
+	nodeID   string
+	nodeName string
 
 	rootContext context.Context
 	rootCancel  context.CancelFunc
@@ -93,9 +95,15 @@ type stream struct {
 }
 
 func NewManager(source Source) *Manager {
+	return NewManagerForNode(source, "", "")
+}
+
+func NewManagerForNode(source Source, nodeID, nodeName string) *Manager {
 	context, cancel := context.WithCancel(context.Background())
 	return &Manager{
 		source:      source,
+		nodeID:      nodeID,
+		nodeName:    nodeName,
 		rootContext: context,
 		rootCancel:  cancel,
 		streams:     make(map[string]*stream),
@@ -325,7 +333,7 @@ func (m *Manager) watch(current *stream) {
 					current.lastSeen = line.Timestamp
 				}
 				current.lastSeenMu.Unlock()
-				current.publish(explorer.ToEntry(line, current.container))
+				current.publish(explorer.ToEntryForNode(line, current.container, m.nodeID, m.nodeName))
 			}
 			return nil
 		})
