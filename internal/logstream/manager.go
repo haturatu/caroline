@@ -174,7 +174,8 @@ func (m *Manager) SubscribeWithNodes(
 
 	selectedContainers := make([]docker.Container, 0, len(containers))
 	for _, container := range containers {
-		if len(selected) == 0 || explorer.MatchesContainerSelection(container, selected) {
+		if docker.ShouldCollect(container) &&
+			(len(selected) == 0 || explorer.MatchesContainerSelection(container, selected)) {
 			selectedContainers = append(selectedContainers, container)
 		}
 	}
@@ -243,9 +244,23 @@ func (m *Manager) Refresh(ctx context.Context) error {
 		return err
 	}
 
-	newStreams := make([]*stream, 0, len(containers))
-	m.mu.Lock()
+	running := make(map[string]docker.Container, len(containers))
 	for _, container := range containers {
+		if docker.ShouldCollect(container) {
+			running[container.ID] = container
+		}
+	}
+
+	newStreams := make([]*stream, 0, len(running))
+	staleStreams := make([]*stream, 0)
+	m.mu.Lock()
+	for id, current := range m.streams {
+		if _, ok := running[id]; !ok {
+			delete(m.streams, id)
+			staleStreams = append(staleStreams, current)
+		}
+	}
+	for _, container := range running {
 		current, created := m.getOrCreateStreamLocked(container, time.Now().UTC())
 		if created {
 			current.mu.Lock()
@@ -261,6 +276,9 @@ func (m *Manager) Refresh(ctx context.Context) error {
 		}
 	}
 	m.mu.Unlock()
+	for _, current := range staleStreams {
+		current.cancel()
+	}
 	for _, current := range newStreams {
 		m.startStream(current)
 	}
@@ -352,6 +370,9 @@ func (m *Manager) watch(current *stream) {
 			return
 		}
 		if err != nil {
+			if docker.IsNotFound(err) {
+				return
+			}
 			current.publishError(StreamError{Container: current.container, Err: err})
 		}
 		timer := time.NewTimer(streamRetryDelay)

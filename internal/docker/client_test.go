@@ -2,6 +2,7 @@ package docker
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -61,5 +62,24 @@ func TestLogsUsesAllForNegativeTail(t *testing.T) {
 
 	if _, err := testHTTPClient(server).Logs(context.Background(), "container-1", -1, time.Time{}); err != nil {
 		t.Fatalf("Logs: %v", err)
+	}
+}
+
+func TestFollowLogsReturnsTypedNotFoundError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"message":"No such container: old-id"}`))
+	}))
+	defer server.Close()
+
+	err := testHTTPClient(server).FollowLogs(context.Background(), "old-id", time.Time{}, func(Frame) error {
+		return nil
+	})
+	if !IsNotFound(err) {
+		t.Fatalf("FollowLogs error = %v, want Docker not-found error", err)
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusNotFound {
+		t.Fatalf("FollowLogs error type = %#v, want status %d", err, http.StatusNotFound)
 	}
 }
