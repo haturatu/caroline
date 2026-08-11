@@ -6,15 +6,36 @@ services:
       - "8080:8080"
     environment:
       PORT: 8080
+      CAROLINE_DATA_DIR: /data
+      CAROLINE_DB: /data/caroline.db
+      CAROLINE_HUB_KEY: /data/hub.key
       ALERTS_FILE: /data/alerts.json
       # Set this to the public URL so alert notifications can link to Explorer.
       CAROLINE_URL: ${CAROLINE_URL:-}
     volumes:
-      # Caroline only calls read APIs, but the Docker socket itself is the
-      # standard Engine API transport and must be mounted to discover logs.
-      - /var/run/docker.sock:/var/run/docker.sock:ro
       - caroline-data:/data
+    restart: unless-stopped
+
+  caroline-agent:
+    build:
+      context: .
+      target: agent
+    container_name: caroline-agent
+    profiles: [agent]
+    depends_on:
+      - caroline
+    environment:
+      CAROLINE_HUB_URL: ${CAROLINE_HUB_URL:-http://caroline:8080}
+      CAROLINE_ENROLLMENT_TOKEN: ${CAROLINE_ENROLLMENT_TOKEN:-}
+      CAROLINE_HUB_PUBLIC_KEY: ${CAROLINE_HUB_PUBLIC_KEY:-}
+      CAROLINE_AGENT_TRUST_ON_FIRST_USE: ${CAROLINE_AGENT_TRUST_ON_FIRST_USE:-false}
+      CAROLINE_AGENT_COMPRESSION: ${CAROLINE_AGENT_COMPRESSION:-gzip}
+      DOCKER_HOST: unix:///var/run/docker.sock
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - caroline-agent-data:/var/lib/caroline-agent
     restart: unless-stopped
 
 volumes:
   caroline-data:
+  caroline-agent-data:
