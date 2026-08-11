@@ -82,8 +82,8 @@ The server listens on <http://localhost:8080> by default.
 | `CAROLINE_DATA_DIR` | `.` | Hub data directory for the SQLite database, Hub key, and default alert file |
 | `CAROLINE_DB` | `$CAROLINE_DATA_DIR/caroline.db` | SQLite database path |
 | `CAROLINE_HUB_KEY` | `$CAROLINE_DATA_DIR/hub.key` | Hub Ed25519 private key |
-| `CAROLINE_RETENTION` | disabled | Log retention duration, for example `7d` |
-| `CAROLINE_MAX_STORAGE_SIZE` | disabled | Logical retained log payload budget, for example `10GiB` |
+| `CAROLINE_RETENTION` | `7d` | Log retention duration; `0`, `off`, or `disabled` turns it off |
+| `CAROLINE_MAX_STORAGE_SIZE` | `10GiB` | Logical retained log payload budget; `0`, `off`, or `disabled` turns it off |
 | `ALERTS_FILE` | `alerts.json` | JSON file used to persist alert rules and state |
 | `CAROLINE_HUB_URL` | — | Agent: Hub base URL |
 | `CAROLINE_ENROLLMENT_TOKEN` | — | Agent: single-use registration token |
@@ -98,6 +98,8 @@ The server listens on <http://localhost:8080> by default.
 `DOCKER_HOST` supports `unix://`, `tcp://`, `http://`, and `https://` endpoints. When using a TCP or HTTP connection, configure authentication, TLS, and network controls on the Docker Engine side as appropriate.
 
 The Hub can run without a Docker socket. In Hub mode `/api/status` reports `mode: "hub"`; logs arrive from authenticated Agents. For a single-host deployment, run an Agent beside the Hub rather than granting the Hub access to the Docker socket.
+
+By default, the Hub deletes logs older than 7 days and also enforces a 10 GiB logical payload budget; whichever condition requires deletion is applied first. The size budget covers retained log payload columns, not the complete `caroline.db` file: SQLite indexes, row and page overhead, metadata tables, and WAL files are additional disk usage. Set either variable to `0`, `off`, or `disabled` only when an unbounded limit is intentional. Cleanup runs at startup and hourly. Agent offline spool limits are separate and default to 1 GiB or 24 hours.
 
 ### Registering an Agent
 
