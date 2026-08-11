@@ -3,6 +3,10 @@
 
 Caroline は、複数の Docker ホストに配置した Agent からログを収集し、Hub で横断検索する軽量なログ管理システムです。Google Cloud Logs Explorer の情報設計に着想を得ていますが、クエリ構文やデータモデルは Docker ログ向けの小さな subset です。
 
+<img width="647" height="621" alt="image" src="https://github.com/user-attachments/assets/22a98400-9a31-4c45-a70f-fa00ac073804" />  
+
+メモリ追加購入しなくて済むね！やったねたえちゃん！
+
 ## 作った理由
 自分のサーバでは主に全てコンテナ管理しているが統合したログ確認などが出来ず、外出先から確認するときは `Beszel` での単体のコンテナログを確認していました。ただしなかなかログ管理という観点だとちょっと厳しかったので個人的に使いやすい GCP の Cloud Logging の機能である `Logs Explorer` のような UI/UX で操作できればいいなと思い作成に至りました。  
 アプリ名 / プロジェクト名 はたまたま The Velvet Underground の Caroline を聞いていただけでつけたもの。  
