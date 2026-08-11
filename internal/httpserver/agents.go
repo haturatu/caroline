@@ -240,7 +240,7 @@ func readAgentBody(w http.ResponseWriter, r *http.Request, limit int64) ([]byte,
 	var reader io.Reader = r.Body
 	encoding := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Encoding")))
 	if encoding == "gzip" {
-		compressed, err := io.ReadAll(io.LimitReader(r.Body, limit))
+		compressed, err := io.ReadAll(r.Body)
 		if err != nil {
 			return nil, err
 		}
@@ -249,18 +249,22 @@ func readAgentBody(w http.ResponseWriter, r *http.Request, limit int64) ([]byte,
 			return nil, fmt.Errorf("invalid gzip body: %w", err)
 		}
 		defer gzipReader.Close()
-		reader = io.LimitReader(gzipReader, limit)
+		reader = gzipReader
 	} else if encoding == "zstd" {
-		decoder, err := zstd.NewReader(r.Body)
+		decoder, err := zstd.NewReader(
+			r.Body,
+			zstd.WithDecoderMaxMemory(uint64(limit)),
+			zstd.WithDecoderConcurrency(1),
+		)
 		if err != nil {
 			return nil, fmt.Errorf("invalid zstd body: %w", err)
 		}
 		defer decoder.Close()
-		reader = io.LimitReader(decoder, limit)
+		reader = decoder
 	} else if encoding != "" && encoding != "identity" {
 		return nil, fmt.Errorf("unsupported content encoding %q", encoding)
 	}
-	body, err := io.ReadAll(reader)
+	body, err := io.ReadAll(io.LimitReader(reader, limit+1))
 	if err != nil {
 		return nil, err
 	}
