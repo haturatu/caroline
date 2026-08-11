@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -38,6 +39,34 @@ func (s *Server) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid registration payload")
 		return
 	}
+	s.registerAgent(w, r, request)
+}
+
+func (s *Server) handleAgentEnroll(w http.ResponseWriter, r *http.Request) {
+	if s.nodes == nil {
+		writeError(w, http.StatusServiceUnavailable, "agent enrollment is unavailable")
+		return
+	}
+	body, err := readAgentBody(w, r, maxRegisterBytes)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	var request agentproto.RegisterRequest
+	if err := json.Unmarshal(body, &request); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid enrollment payload")
+		return
+	}
+	token, err := enrollmentTokenFromPath(r.URL.Path)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	request.EnrollmentToken = token
+	s.registerAgent(w, r, request)
+}
+
+func (s *Server) registerAgent(w http.ResponseWriter, r *http.Request, request agentproto.RegisterRequest) {
 	response, _, err := s.nodes.Register(r.Context(), request)
 	if err != nil {
 		status := http.StatusBadRequest
@@ -50,6 +79,23 @@ func (s *Server) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, response)
+}
+
+func enrollmentTokenFromPath(path string) (string, error) {
+	for _, prefix := range []string{"/api/v1/agent/enroll/", "/api/agent/enroll/"} {
+		if strings.HasPrefix(path, prefix) {
+			value := strings.Trim(strings.TrimPrefix(path, prefix), "/")
+			if value == "" || strings.Contains(value, "/") {
+				return "", errors.New("enrollment token is required")
+			}
+			decoded, err := url.PathUnescape(value)
+			if err != nil || decoded == "" {
+				return "", errors.New("enrollment token is invalid")
+			}
+			return decoded, nil
+		}
+	}
+	return "", errors.New("enrollment URL is invalid")
 }
 
 func (s *Server) handleAgentChallenge(w http.ResponseWriter, r *http.Request) {
