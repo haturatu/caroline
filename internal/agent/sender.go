@@ -24,29 +24,38 @@ import (
 type Sender struct {
 	config   Config
 	identity Identity
+	bootID   string
 	client   *http.Client
 
 	mu            sync.Mutex
-	sessionID     string
-	sessionExpiry time.Time
 	hubPublicKey  ed25519.PublicKey
+	hubPinPath    string
+	authenticated bool
 }
 
 var agentCapabilities = append([]string(nil), agentproto.SupportedCapabilities...)
 
-func NewSender(config Config, identity Identity) *Sender {
-	return &Sender{config: config, identity: identity, client: &http.Client{Timeout: 20 * time.Second}, hubPublicKey: append(ed25519.PublicKey(nil), config.HubPublicKey...)}
+func NewSender(config Config, identity Identity, bootID string) (*Sender, error) {
+	hubPublicKey, err := loadHubPublicKey(config)
+	if err != nil {
+		return nil, err
+	}
+	return &Sender{
+		config: config, identity: identity, bootID: bootID,
+		client:       &http.Client{Timeout: 20 * time.Second},
+		hubPublicKey: hubPublicKey, hubPinPath: config.HubPinPath(),
+	}, nil
 }
 
 func (s *Sender) SendBatch(ctx context.Context, batch explorer.EntryBatch) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.ensureSessionLocked(ctx); err != nil {
+	if err := s.ensureAuthenticatedLocked(ctx); err != nil {
 		return err
 	}
 	body, err := json.Marshal(agentproto.LogBatch{
-		ProtocolVersion: agentproto.ProtocolVersion, AgentID: s.identity.AgentID,
-		BootID: s.identity.BootID, Sequence: batch.Sequence, Entries: batch.Entries,
+		ProtocolVersion: agentproto.ProtocolVersion, AgentID: batch.AgentID,
+		BootID: batch.BootID, Sequence: batch.Sequence, Entries: batch.Entries,
 		Containers: batch.Containers,
 	})
 	if err != nil {
@@ -54,8 +63,8 @@ func (s *Sender) SendBatch(ctx context.Context, batch explorer.EntryBatch) error
 	}
 	response, err := s.doSignedLocked(ctx, http.MethodPost, "/api/v1/agent/logs", body)
 	if err != nil && errors.Is(err, errUnauthorized) {
-		if sessionErr := s.refreshSessionLocked(ctx); sessionErr != nil {
-			return sessionErr
+		if challengeErr := s.refreshHubChallengeLocked(ctx); challengeErr != nil {
+			return challengeErr
 		}
 		_, err = s.doSignedLocked(ctx, http.MethodPost, "/api/v1/agent/logs", body)
 	}
@@ -69,7 +78,7 @@ func (s *Sender) SendBatch(ctx context.Context, batch explorer.EntryBatch) error
 func (s *Sender) Heartbeat(ctx context.Context, heartbeat agentproto.Heartbeat) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.ensureSessionLocked(ctx); err != nil {
+	if err := s.ensureAuthenticatedLocked(ctx); err != nil {
 		return err
 	}
 	body, err := json.Marshal(heartbeat)
@@ -97,7 +106,7 @@ func (s *Sender) ControlLoop(ctx context.Context) error {
 
 func (s *Sender) openControlStream(ctx context.Context) error {
 	s.mu.Lock()
-	if err := s.ensureSessionLocked(ctx); err != nil {
+	if err := s.ensureAuthenticatedLocked(ctx); err != nil {
 		s.mu.Unlock()
 		return err
 	}
@@ -120,7 +129,7 @@ func (s *Sender) openControlStream(ctx context.Context) error {
 	defer response.Body.Close()
 	if response.StatusCode == http.StatusUnauthorized {
 		s.mu.Lock()
-		refreshErr := s.refreshSessionLocked(ctx)
+		refreshErr := s.refreshHubChallengeLocked(ctx)
 		s.mu.Unlock()
 		return refreshErr
 	}
@@ -138,23 +147,23 @@ func (s *Sender) openControlStream(ctx context.Context) error {
 	return scanner.Err()
 }
 
-func (s *Sender) ensureSessionLocked(ctx context.Context) error {
-	if s.sessionID != "" && time.Now().UTC().Before(s.sessionExpiry.Add(-time.Minute)) {
+func (s *Sender) ensureAuthenticatedLocked(ctx context.Context) error {
+	if s.authenticated {
 		return nil
 	}
 	if strings.TrimSpace(s.config.EnrollmentToken) != "" {
 		if err := s.registerLocked(ctx); err != nil {
 			// A Compose environment may keep the single-use token after the
 			// Agent process restarts. If the key is already registered, resume
-			// with a signed session instead of attempting registration again.
+			// with a signed Hub challenge instead of attempting registration again.
 			if errors.Is(err, errUnauthorized) {
-				return s.refreshSessionLocked(ctx)
+				return s.refreshHubChallengeLocked(ctx)
 			}
 			return err
 		}
 		return nil
 	}
-	return s.refreshSessionLocked(ctx)
+	return s.refreshHubChallengeLocked(ctx)
 }
 
 func (s *Sender) registerLocked(ctx context.Context) error {
@@ -181,53 +190,63 @@ func (s *Sender) registerLocked(ctx context.Context) error {
 	if err := json.Unmarshal(responseBody, &response); err != nil {
 		return err
 	}
-	if err := s.acceptHubChallenge(response.HubPublicKey, response.HubKeyID, response.Signature, response.AgentID, response.Nonce, response.SessionID, response.ExpiresAt); err != nil {
+	if err := s.acceptHubChallenge(response.HubPublicKey, response.HubKeyID, response.Signature, response.AgentID, response.Nonce, response.ChallengeID, response.ExpiresAt); err != nil {
 		return err
 	}
-	s.sessionID, s.sessionExpiry = response.SessionID, response.ExpiresAt
+	s.authenticated = true
 	s.config.EnrollmentToken = ""
 	return nil
 }
 
-func (s *Sender) refreshSessionLocked(ctx context.Context) error {
+func (s *Sender) refreshHubChallengeLocked(ctx context.Context) error {
 	nonce, err := agentproto.NewNonce()
 	if err != nil {
 		return err
 	}
-	body, err := json.Marshal(agentproto.SessionRequest{ProtocolVersion: agentproto.ProtocolVersion, AgentID: s.identity.AgentID, SessionID: s.sessionID, Nonce: nonce})
+	body, err := json.Marshal(agentproto.ChallengeRequest{ProtocolVersion: agentproto.ProtocolVersion, AgentID: s.identity.AgentID, Nonce: nonce})
 	if err != nil {
 		return err
 	}
-	responseBody, err := s.doJSONLocked(ctx, http.MethodPost, "/api/v1/agent/session", body, true)
+	responseBody, err := s.doJSONLocked(ctx, http.MethodPost, "/api/v1/agent/challenge", body, true)
 	if err != nil {
 		return err
 	}
-	var response agentproto.SessionResponse
+	var response agentproto.ChallengeResponse
 	if err := json.Unmarshal(responseBody, &response); err != nil {
 		return err
 	}
-	if err := s.acceptHubChallenge(response.HubPublicKey, response.HubKeyID, response.Signature, s.identity.AgentID, response.Nonce, response.SessionID, response.ExpiresAt); err != nil {
+	if err := s.acceptHubChallenge(response.HubPublicKey, response.HubKeyID, response.Signature, s.identity.AgentID, response.Nonce, response.ChallengeID, response.ExpiresAt); err != nil {
 		return err
 	}
-	s.sessionID, s.sessionExpiry = response.SessionID, response.ExpiresAt
+	s.authenticated = true
 	return nil
 }
 
-func (s *Sender) acceptHubChallenge(publicKey []byte, keyID string, signature []byte, agentID, agentNonce, sessionID string, expiresAt time.Time) error {
+func (s *Sender) acceptHubChallenge(publicKey []byte, keyID string, signature []byte, agentID, agentNonce, challengeID string, expiresAt time.Time) error {
 	if len(publicKey) != ed25519.PublicKeySize || len(signature) != ed25519.SignatureSize {
 		return errors.New("hub challenge is malformed")
 	}
+	key := s.hubPublicKey
 	if len(s.hubPublicKey) == 0 {
 		if !s.config.TrustHubOnFirstUse {
 			return errors.New("CAROLINE_HUB_PUBLIC_KEY is required unless trust-on-first-use is enabled")
 		}
-		s.hubPublicKey = append(ed25519.PublicKey(nil), publicKey...)
+		key = append(ed25519.PublicKey(nil), publicKey...)
 	}
-	if !ed25519.PublicKey(s.hubPublicKey).Equal(ed25519.PublicKey(publicKey)) {
+	if !key.Equal(ed25519.PublicKey(publicKey)) {
 		return fmt.Errorf("hub key %q does not match the pinned key", keyID)
 	}
-	if !agentproto.VerifyChallenge(s.hubPublicKey, signature, agentproto.ProtocolVersion, agentID, agentNonce, sessionID, expiresAt) {
+	if !expiresAt.After(time.Now().UTC()) {
+		return errors.New("hub challenge has expired")
+	}
+	if !agentproto.VerifyChallenge(key, signature, agentproto.ProtocolVersion, agentID, agentNonce, challengeID, expiresAt) {
 		return errors.New("hub challenge signature verification failed")
+	}
+	if len(s.hubPublicKey) == 0 {
+		s.hubPublicKey = key
+		if err := saveHubPin(s.hubPinPath, keyID, key); err != nil {
+			return err
+		}
 	}
 	return nil
 }

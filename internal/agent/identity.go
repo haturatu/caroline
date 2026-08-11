@@ -12,15 +12,12 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-
-	"caroline/internal/agentproto"
 )
 
 type Identity struct {
 	AgentID      string `json:"agentId"`
 	PrivateKey   []byte `json:"privateKey"`
 	PublicKey    []byte `json:"publicKey"`
-	BootID       string `json:"bootId"`
 	Fingerprint  string `json:"fingerprint"`
 	Hostname     string `json:"hostname"`
 	OS           string `json:"os"`
@@ -49,15 +46,11 @@ func LoadOrCreateIdentity(path string) (Identity, error) {
 	}
 	hostname, _ := os.Hostname()
 	fingerprint := machineFingerprint(hostname)
-	bootID, err := agentproto.NewNonce()
-	if err != nil {
-		return Identity{}, err
-	}
 	digest := sha256.Sum256(publicKey)
 	identity := Identity{
 		AgentID:    "agt_" + hex.EncodeToString(digest[:])[:20],
 		PrivateKey: append([]byte(nil), privateKey...), PublicKey: append([]byte(nil), publicKey...),
-		BootID: bootID, Fingerprint: fingerprint, Hostname: hostname,
+		Fingerprint: fingerprint, Hostname: hostname,
 		OS: runtime.GOOS, Architecture: runtime.GOARCH,
 	}
 	data, err := json.MarshalIndent(identity, "", "  ")
