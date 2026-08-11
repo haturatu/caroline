@@ -3,7 +3,9 @@
 
 Caroline is a lightweight Hub and Agent system for searching and inspecting stdout/stderr from Docker containers across multiple hosts. It is inspired by the information architecture of Google Cloud Logs Explorer, but its query syntax and data model are intentionally a small subset designed for Docker logs.
 
-See the [Japanese README](README.ja.md).
+See the [Japanese README](README.ja.md).  
+<img width="647" height="621" alt="image" src="https://github.com/user-attachments/assets/22a98400-9a31-4c45-a70f-fa00ac073804" />  
+good thing I don't need to buy more RAM!
 
 ## Why Caroline?
 
