@@ -1,6 +1,7 @@
 export type Severity = "" | "DEBUG" | "INFO" | "WARNING" | "ERROR";
 export type SortOrder = "asc" | "desc";
 export type Theme = "dark" | "light";
+export type AppView = "explorer" | "alerts";
 
 export interface ContainerInfo {
 	id: string;
@@ -88,6 +89,7 @@ export interface AlertRule {
 }
 
 export interface AppState {
+	view: AppView;
 	query: string;
 	draftQuery: string;
 	searchText: string;
@@ -124,6 +126,8 @@ export interface AppState {
 		rules: AlertRule[];
 		loading: boolean;
 		error: string;
+		search: string;
+		statusFilter: "all" | "OK" | "FIRING" | "PAUSED";
 	};
 }
 

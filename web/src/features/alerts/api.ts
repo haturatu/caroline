@@ -17,6 +17,12 @@ export type AlertRuleInput = {
 	webhookUrl: string;
 };
 
+export type AlertRulePatchInput = Partial<
+	Omit<AlertRuleInput, "webhookUrl">
+> & {
+	webhookUrl?: string;
+};
+
 export function fetchAlerts(): Promise<AlertRule[]> {
 	return getJSON<AlertRule[]>("/api/alerts");
 }
@@ -24,6 +30,17 @@ export function fetchAlerts(): Promise<AlertRule[]> {
 export function createAlert(input: AlertRuleInput): Promise<AlertRule> {
 	return requestJSON<AlertRule>("/api/alerts", {
 		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(input),
+	});
+}
+
+export function updateAlert(
+	id: string,
+	input: AlertRulePatchInput,
+): Promise<AlertRule> {
+	return requestJSON<AlertRule>(`/api/alerts/${encodeURIComponent(id)}`, {
+		method: "PATCH",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(input),
 	});

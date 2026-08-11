@@ -5,6 +5,7 @@ const supportedDurations = ["5m", "15m", "1h", "6h", "24h", "7d"];
 
 export function hydrateURL(): void {
 	const params = new URL(window.location.href).searchParams;
+	state.view = params.get("view") === "alerts" ? "alerts" : "explorer";
 	const severity = params.get("severity") || "";
 	const duration = params.get("duration") || "5m";
 	state.query = params.get("q") || "";
@@ -31,6 +32,7 @@ export function hydrateURL(): void {
 export function syncURL(): void {
 	const url = new URL(window.location.href);
 	const values: Record<string, string> = {
+		view: state.view === "alerts" ? "alerts" : "",
 		q: state.query,
 		search: state.searchText,
 		container: state.container,
