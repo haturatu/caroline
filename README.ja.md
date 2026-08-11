@@ -1,7 +1,7 @@
 # Caroline
 <img width="1341" height="629" alt="top" src="https://github.com/user-attachments/assets/d89ad9db-64fa-45c4-93af-3e7329bdca6e" />
 
-Caroline は、Docker Engine で現在起動しているコンテナの stdout / stderr を検索・閲覧するための軽量な Web アプリです。Google Cloud Logs Explorer の情報設計に着想を得ていますが、クエリ構文やデータモデルは Docker ログ向けの小さな subset です。
+Caroline は、複数の Docker ホストに配置した Agent からログを収集し、Hub で横断検索する軽量なログ管理システムです。Google Cloud Logs Explorer の情報設計に着想を得ていますが、クエリ構文やデータモデルは Docker ログ向けの小さな subset です。
 
 ## 作った理由
 自分のサーバでは主に全てコンテナ管理しているが統合したログ確認などが出来ず、外出先から確認するときは `Beszel` での単体のコンテナログを確認していました。ただしなかなかログ管理という観点だとちょっと厳しかったので個人的に使いやすい GCP の Cloud Logging の機能である `Logs Explorer` のような UI/UX で操作できればいいなと思い作成に至りました。  
@@ -9,7 +9,10 @@ Caroline は、Docker Engine で現在起動しているコンテナの stdout /
 
 ## 主な特徴
 
-- 起動中コンテナを自動検出
+- Hub が正規化したログを SQLite に保存
+- 各ホストの read-only Docker Engine を監視する `caroline-agent`
+- batch、再送、disk spool、重複排除による at-least-once 配送
+- Node 単位の検索、コンテナ grouping、Agent の online / offline 表示
 - コンテナ、stdout / stderr、severity、時間範囲での絞り込み
 - 全フィールド検索と Caroline Query Syntax による検索
 - Timeline、Fields 集計、ログ詳細 drawer
@@ -17,7 +20,7 @@ Caroline は、Docker Engine で現在起動しているコンテナの stdout /
 - しきい値・時間枠・クールダウンに対応したログアラートと、Discord / Slack / ntfy / Microsoft Teams / 汎用 Webhook 通知
 - URL に検索条件を保存する Share Link
 - ダーク / ライトテーマ、モバイル用ナビゲーション
-- Docker Engine への読み取り専用アクセス
+- Agent から Docker Engine へ読み取り専用アクセス（Hub に Docker socket は不要）
 
 ## 起動
 
@@ -29,7 +32,13 @@ docker compose up -d --build
 
 ブラウザで <http://localhost:8080> を開きます。
 
-Compose は `/var/run/docker.sock` を read-only でコンテナへマウントします。Caroline は Docker Engine の GET API のみを使用し、ログや検索結果を永続化しません。
+通常の Compose 起動では Hub のみを起動し、`/var/run/docker.sock` は Hub にマウントしません。Hub はログとidentityを `caroline-data` volume に保存します。Agent は対象 Docker ホスト上で別途起動します。
+
+```sh
+docker compose up -d --build caroline
+```
+
+Hub の `POST /api/nodes` で単回利用の Enrollment Token を発行し、`GET /api/health` の `hubPublicKey` とともに Agent に設定してください。Agent 用 Compose profile を使う場合は、対象ホストの Docker socket を read-only で `caroline-agent` にマウントします。
 
 停止する場合:
 
@@ -43,12 +52,15 @@ docker compose down
 
 - Go 1.26 以上
 - Node.js 22 以上と npm
-- 接続可能な Docker Engine
+- 接続可能な Docker Engine（`caroline-agent` 側で必要）
 
 ```sh
 npm ci
 npm run build
 go run ./cmd/caroline
+
+# 各 Docker ホストで、CAROLINE_HUB_URL 等を設定した後に起動
+go run ./cmd/caroline-agent
 ```
 
 デフォルトでは <http://localhost:8080> で待ち受けます。
@@ -58,18 +70,45 @@ go run ./cmd/caroline
 | 変数 | デフォルト | 説明 |
 | --- | --- | --- |
 | `PORT` | `8080` | Web サーバーの待受ポート |
-| `DOCKER_HOST` | `unix:///var/run/docker.sock` | Docker Engine の接続先 |
+| `CAROLINE_DATA_DIR` | `.` | Hub の SQLite、Hub key、alert file の保存先 |
+| `CAROLINE_DB` | `$CAROLINE_DATA_DIR/caroline.db` | SQLite database のパス |
+| `CAROLINE_HUB_KEY` | `$CAROLINE_DATA_DIR/hub.key` | Hub の Ed25519 private key |
+| `CAROLINE_RETENTION` | `7d` | ログ保持期間。`0`、`off`、`disabled`で無効化 |
+| `CAROLINE_MAX_STORAGE_SIZE` | `10GiB` | 保持ログpayloadの論理上限。`0`、`off`、`disabled`で無効化 |
+| `CAROLINE_RETENTION_MODE` | `independent` | `independent`はHub基準、`source`はDocker側から報告されたログ境界、`min`は両者の短い方を使用 |
 | `ALERTS_FILE` | `alerts.json` | アラートのJSON保存先 |
+| `CAROLINE_HUB_URL` | — | Agent: Hub の URL |
+| `CAROLINE_ENROLLMENT_TOKEN` | — | Agent: 単回利用の登録 token |
+| `CAROLINE_HUB_PUBLIC_KEY` | — | Agent: base64 raw Ed25519 Hub 公開鍵。TOFU を使わない限り必須 |
+| `CAROLINE_AGENT_STATE_DIR` | `/var/lib/caroline-agent` | Agent identity、永続Hub pin（`hub.json`）、spool の保存先 |
+| `CAROLINE_AGENT_SPOOL_MAX_SIZE` | `1GiB` | Agent spool 上限。超過時は古い batch から削除 |
+| `CAROLINE_AGENT_SPOOL_MAX_AGE` | `24h` | Agent spool の最大保存期間 |
+| `CAROLINE_AGENT_TRUST_ON_FIRST_USE` | `false` | 初回 Hub key を自動 pin。通常は公開鍵を明示 |
+| `CAROLINE_AGENT_COMPRESSION` | `gzip` | Agent の batch 圧縮方式。`identity`、`gzip`、`zstd` |
+| `DOCKER_HOST` | Docker のデフォルト | Agent が接続する Docker Engine |
 
 `DOCKER_HOST` は `unix://`、`tcp://`、`http://`、`https://` の形式に対応しています。TCP / HTTP 接続を使う場合は、Docker Engine 側の認証・TLS・ネットワーク制御を別途設定してください。
 
-Docker socket を読めない場合でも Caroline 自体は起動しますが、画面には Docker 接続エラーが表示されます。
+Hub は Docker socket なしで起動できます。Hub mode の `/api/status` は `mode: "hub"` を返し、ログは認証済み Agent から到着します。単一ホストでも Hub に socket を渡さず、Hub と同じホスト上で Agent を起動する構成を推奨します。
+
+Hubはデフォルトで7日より古いログを削除し、保持payloadの論理合計も10GiBに制限します。`CAROLINE_RETENTION_MODE=source`ではAgent/コンテナごとに報告されたDockerログの最古時刻より前を削除し、`min`ではHubの保持期間とsource境界の両方を適用します。Agentは`max-size`と`max-file`から保持時間を推定せず、Docker APIから取得した現在の最古ログ時刻を送信します。Docker側の境界を取得できない場合は推測で削除せず、Hub側のログを保持します。この容量は`text_payload`、`json_payload`、labels、summaryなどのログpayloadを対象とするもので、`caroline.db`全体のファイルサイズ上限ではありません。SQLiteのindex、row/page overhead、metadata table、WALなどが追加で必要です。cleanupは起動時と1時間ごとに実行します。Agentの未送信spool（デフォルト1GiB / 24時間）はHubの保存制限とは別です。
+
+### Agent の登録
+
+```sh
+curl -X POST http://localhost:8080/api/nodes \
+  -H 'Content-Type: application/json' \
+  -d '{"ttlSeconds":900}'
+```
+
+`GET /api/health` の `hubPublicKey` を base64 化し、`CAROLINE_HUB_URL`、`CAROLINE_ENROLLMENT_TOKEN`、`CAROLINE_HUB_PUBLIC_KEY` を Agent に設定します。Agentは登録後に署名済みHub challengeを検証し、通常通信を永続Ed25519 keyで署名します。TOFUを使う場合は検証済みHub keyを`hub.json`へ保存し、再起動後も同じkeyだけを受け入れます。node management API は、信頼できるネットワークの外へ公開する前に reverse proxy 等のアクセス制御で保護してください。
 
 ## UI の使い方
 
 ### Filters
 
 - **Container**: 起動中コンテナを選択
+- **Node**: Docker ホストを選択
 - **Stream**: `stdout` または `stderr`
 - **Severity**: `Errors`、`Warnings`、`Info`、`Debug` の完全一致
 - **Time**: 5 分、15 分、1 時間、6 時間、24 時間、7 日、またはカスタム範囲
@@ -141,7 +180,7 @@ timestamp >= "2026-08-10T00:00:00Z"
 - 改行: `AND` として扱う
 - `AND` / `OR`: 句の結合
 
-フィールドとして、`severity`、`stream`、`logName`、`resource.type`、`resource.labels.container_name`、`resource.labels.container_id`、`resource.labels.image`、`timestamp`、`labels.*`、`jsonPayload.*`、`textPayload` / `message` を利用できます。`container`、`container.name` などの短縮名にも対応しています。
+フィールドとして、`severity`、`stream`、`logName`、`resource.type`、`resource.labels.node_id`、`resource.labels.node_name`、`resource.labels.container_name`、`resource.labels.container_id`、`resource.labels.image`、`timestamp`、`labels.*`、`jsonPayload.*`、`textPayload` / `message` を利用できます。`node`、`container`、`container.name` などの短縮名にも対応しています。
 
 `SEARCH("text")` は Summary、Text Payload、Log Name、Resource の種類・ラベル、JSON Payload を対象に検索します。`NOT`、括弧による優先順位、正規表現、Cloud Logging 固有の関数には対応していません。
 
@@ -150,7 +189,7 @@ timestamp >= "2026-08-10T00:00:00Z"
 Docker のログ行は、Cloud Logging の LogEntry に近い形式へ正規化されます。
 
 - `resource.type`: `docker_container`
-- `resource.labels`: コンテナ名、コンテナ ID、イメージ
+- `resource.labels`: Node ID / name、コンテナ名 / ID、イメージ
 - `logName`: `containers/<container>/<stream>`
 - `severity`: ログ本文のキーワードから推定した `DEBUG` / `INFO` / `WARNING` / `ERROR`
 - `stream`: `stdout` または `stderr`
@@ -185,7 +224,7 @@ Caroline サーバーの稼働確認を返します。
 
 ### `GET /api/status`
 
-Docker Engine への接続状態、Docker version、API version、確認時刻を返します。Docker が停止していても HTTP 200 の status payload を返し、`connected` が `false` になります。
+Hub mode または Docker Engine への接続状態、Docker version、API version、確認時刻を返します。Hub response では `mode: "hub"` が返され、`connected` は Docker の health signal ではありません。
 
 ### `GET /api/explorer`
 
@@ -201,6 +240,7 @@ Docker Engine への接続状態、Docker version、API version、確認時刻�
 | `severity` | severity フィルター |
 | `stream` | `stdout` / `stderr` |
 | `containers` | コンテナ名、短縮 ID、完全 ID。カンマ区切り |
+| `nodes` | Node ID または Node 名。カンマ区切り |
 | `sort` | `asc` または `desc` |
 | `limit` | 1〜1,000。デフォルト 100 |
 | `pageToken` | 前レスポンスの `nextPageToken` |
@@ -217,7 +257,7 @@ curl 'http://localhost:8080/api/explorer?duration=15m&limit=100&q=severity%20%3E
 
 新着ログを Server-Sent Events で返します。
 
-主な query parameter は `since`、`q`、`severity`、`stream`、`containers` です。`since` は RFC3339 timestamp で指定します。
+主な query parameter は `since`、`q`、`severity`、`stream`、`containers`、`nodes` です。`since` は RFC3339 timestamp で指定します。
 
 イベント:
 

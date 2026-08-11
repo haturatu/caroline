@@ -16,15 +16,16 @@ func parseExplorerRequest(r *http.Request) (explorer.SearchRequest, error) {
 	query := r.URL.Query()
 	from, to, duration := explorer.ParseWindow(query.Get("from"), query.Get("to"), query.Get("duration"), time.Now().UTC())
 	request := explorer.SearchRequest{
-		From:     from,
-		To:       to,
-		Duration: duration,
-		Query:    strings.TrimSpace(query.Get("q")),
-		Severity: strings.ToUpper(strings.TrimSpace(query.Get("severity"))),
-		Stream:   strings.ToLower(strings.TrimSpace(query.Get("stream"))),
-		Sort:     strings.ToLower(strings.TrimSpace(query.Get("sort"))),
-		Selected: explorer.RequestedContainers(query.Get("containers")),
-		Limit:    queryInt(query.Get("limit"), 100),
+		From:          from,
+		To:            to,
+		Duration:      duration,
+		Query:         strings.TrimSpace(query.Get("q")),
+		Severity:      strings.ToUpper(strings.TrimSpace(query.Get("severity"))),
+		Stream:        strings.ToLower(strings.TrimSpace(query.Get("stream"))),
+		Sort:          strings.ToLower(strings.TrimSpace(query.Get("sort"))),
+		Selected:      explorer.RequestedContainers(query.Get("containers")),
+		SelectedNodes: explorer.RequestedNodes(query.Get("nodes")),
+		Limit:         queryInt(query.Get("limit"), 100),
 		TimelineBuckets: queryInt(
 			query.Get("timelineBuckets"),
 			explorer.DefaultTimelineBuckets,

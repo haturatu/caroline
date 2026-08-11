@@ -35,12 +35,14 @@ func (s *Server) handleTail(w http.ResponseWriter, r *http.Request) {
 	severity := strings.ToUpper(strings.TrimSpace(r.URL.Query().Get("severity")))
 	stream := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("stream")))
 	selected := explorer.RequestedContainers(r.URL.Query().Get("containers"))
+	selectedNodes := explorer.RequestedNodes(r.URL.Query().Get("nodes"))
 
 	tailContext, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	subscription, err := s.streams.Subscribe(
+	subscription, err := s.streams.SubscribeWithNodes(
 		tailContext,
 		selected,
+		selectedNodes,
 		since,
 		explorer.MaxTailStreams,
 	)

@@ -5,12 +5,14 @@ const supportedDurations = ["5m", "15m", "1h", "6h", "24h", "7d"];
 
 export function hydrateURL(): void {
 	const params = new URL(window.location.href).searchParams;
-	state.view = params.get("view") === "alerts" ? "alerts" : "explorer";
+	const view = params.get("view");
+	state.view = view === "alerts" || view === "nodes" ? view : "explorer";
 	const severity = params.get("severity") || "";
 	const duration = params.get("duration") || "5m";
 	state.query = params.get("q") || "";
 	state.draftQuery = state.query;
 	state.searchText = params.get("search") || "";
+	state.node = params.get("node") || "";
 	state.showQuery = params.get("advanced") === "1" || Boolean(state.query);
 	state.container = params.get("container") || "";
 	state.stream = params.get("stream") || "";
@@ -32,9 +34,10 @@ export function hydrateURL(): void {
 export function syncURL(): void {
 	const url = new URL(window.location.href);
 	const values: Record<string, string> = {
-		view: state.view === "alerts" ? "alerts" : "",
+		view: state.view === "alerts" || state.view === "nodes" ? state.view : "",
 		q: state.query,
 		search: state.searchText,
+		node: state.node,
 		container: state.container,
 		stream: state.stream,
 		severity: state.severity,

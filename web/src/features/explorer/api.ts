@@ -24,6 +24,7 @@ export function buildExplorerURL(): string {
 	const query = buildExplorerQuery();
 	if (query) params.set("q", query);
 	if (state.container) params.set("containers", state.container);
+	if (state.node) params.set("nodes", state.node);
 	if (state.timeFrom) params.set("from", state.timeFrom);
 	if (state.timeTo) params.set("to", state.timeTo);
 	if (state.pageToken) params.set("pageToken", state.pageToken);
@@ -32,6 +33,7 @@ export function buildExplorerURL(): string {
 
 export type StatusResponse = {
 	connected: boolean;
+	mode?: "hub" | string;
 	dockerVersion?: string;
 };
 

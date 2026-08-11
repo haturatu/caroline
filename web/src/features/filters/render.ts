@@ -5,11 +5,28 @@ import { t } from "../../shared/i18n/index";
 
 export function renderFilters(): void {
 	const select = $("#containerFilter") as HTMLSelectElement;
+	const nodes = [...new Map(
+		state.containers
+			.filter((container) => container.nodeId || container.nodeName)
+			.map((container) => [container.nodeId || container.nodeName || "", container.nodeName || container.nodeId || "Unknown node"]),
+	)].sort((left, right) => left[1].localeCompare(right[1]));
+	const nodeSelect = $("#nodeFilter") as HTMLSelectElement;
+	nodeSelect.innerHTML = [
+		`<option value="">${t("filters.allNodes")}</option>`,
+		...nodes.map(([id, name]) => `<option value="${escapeHTML(id)}">${escapeHTML(name)}</option>`),
+	].join("");
+	nodeSelect.value = state.node;
 	const options = [
 		`<option value="">${t("filters.allContainers")}</option>`,
-		...state.containers.map(
-			(container) =>
-				`<option value="${escapeHTML(container.id)}">${escapeHTML(container.name)}</option>`,
+		...nodes.flatMap(([nodeId, nodeName]) => {
+			const containers = state.containers.filter((container) => (container.nodeId || container.nodeName || "") === nodeId);
+			if (!containers.length) return [];
+			return `<optgroup label="${escapeHTML(nodeName)}">${containers
+				.map((container) => `<option value="${escapeHTML(container.id)}">${escapeHTML(container.name)}</option>`)
+				.join("")}</optgroup>`;
+		}),
+		...state.containers.filter((container) => !container.nodeId && !container.nodeName).map(
+			(container) => `<option value="${escapeHTML(container.id)}">${escapeHTML(container.name)}</option>`,
 		),
 	];
 	select.innerHTML = options.join("");

@@ -35,6 +35,7 @@ type Subscription struct {
 	StreamedContainers int
 
 	manager *Manager
+	broker  *Broker
 	owner   *subscriber
 	once    sync.Once
 }
@@ -44,12 +45,20 @@ func (s *Subscription) Close() {
 		return
 	}
 	s.once.Do(func() {
-		s.manager.closeSubscription(s.owner)
+		if s.manager != nil {
+			s.manager.closeSubscription(s.owner)
+		}
+		if s.broker != nil {
+			s.broker.closeSubscription(s.owner)
+		}
 	})
 }
 
 type Manager struct {
-	source Source
+	source   Source
+	broker   *Broker
+	nodeID   string
+	nodeName string
 
 	rootContext context.Context
 	rootCancel  context.CancelFunc
@@ -60,13 +69,14 @@ type Manager struct {
 }
 
 type subscriber struct {
-	manager  *Manager
-	selected map[string]bool
-	since    time.Time
-	done     chan struct{}
-	entries  chan explorer.Entry
-	errors   chan StreamError
-	once     sync.Once
+	manager       *Manager
+	selected      map[string]bool
+	selectedNodes map[string]bool
+	since         time.Time
+	done          chan struct{}
+	entries       chan explorer.Entry
+	errors        chan StreamError
+	once          sync.Once
 }
 
 type stream struct {
@@ -85,9 +95,15 @@ type stream struct {
 }
 
 func NewManager(source Source) *Manager {
+	return NewManagerForNode(source, "", "")
+}
+
+func NewManagerForNode(source Source, nodeID, nodeName string) *Manager {
 	context, cancel := context.WithCancel(context.Background())
 	return &Manager{
 		source:      source,
+		nodeID:      nodeID,
+		nodeName:    nodeName,
 		rootContext: context,
 		rootCancel:  cancel,
 		streams:     make(map[string]*stream),
@@ -95,7 +111,21 @@ func NewManager(source Source) *Manager {
 	}
 }
 
+func NewBrokerManager(broker *Broker) *Manager {
+	context, cancel := context.WithCancel(context.Background())
+	return &Manager{
+		broker:      broker,
+		rootContext: context,
+		rootCancel:  cancel,
+	}
+}
+
 func (m *Manager) Close() {
+	if m.broker != nil {
+		m.rootCancel()
+		m.broker.Close()
+		return
+	}
 	m.rootCancel()
 	m.mu.Lock()
 	owners := make([]*subscriber, 0, len(m.subscribers))
@@ -124,6 +154,19 @@ func (m *Manager) Subscribe(
 	since time.Time,
 	maxContainers int,
 ) (*Subscription, error) {
+	return m.SubscribeWithNodes(ctx, selected, nil, since, maxContainers)
+}
+
+func (m *Manager) SubscribeWithNodes(
+	ctx context.Context,
+	selected map[string]bool,
+	selectedNodes map[string]bool,
+	since time.Time,
+	maxContainers int,
+) (*Subscription, error) {
+	if m.broker != nil {
+		return m.broker.Subscribe(ctx, selected, selectedNodes, since), nil
+	}
 	containers, err := m.listRunning(ctx)
 	if err != nil {
 		return nil, err
@@ -144,12 +187,13 @@ func (m *Manager) Subscribe(
 	}
 
 	owner := &subscriber{
-		manager:  m,
-		selected: cloneSelection(selected),
-		since:    since,
-		done:     make(chan struct{}),
-		entries:  make(chan explorer.Entry, defaultSubscriptionBuffer),
-		errors:   make(chan StreamError, 32),
+		manager:       m,
+		selected:      cloneSelection(selected),
+		selectedNodes: cloneSelection(selectedNodes),
+		since:         since,
+		done:          make(chan struct{}),
+		entries:       make(chan explorer.Entry, defaultSubscriptionBuffer),
+		errors:        make(chan StreamError, 32),
 	}
 	newStreams := make([]*stream, 0, len(streamedContainers))
 	m.mu.Lock()
@@ -191,6 +235,9 @@ func (m *Manager) Subscribe(
 }
 
 func (m *Manager) Refresh(ctx context.Context) error {
+	if m.broker != nil {
+		return nil
+	}
 	containers, err := m.listRunning(ctx)
 	if err != nil {
 		return err
@@ -297,7 +344,7 @@ func (m *Manager) watch(current *stream) {
 					current.lastSeen = line.Timestamp
 				}
 				current.lastSeenMu.Unlock()
-				current.publish(explorer.ToEntry(line, current.container))
+				current.publish(explorer.ToEntryForNode(line, current.container, m.nodeID, m.nodeName))
 			}
 			return nil
 		})

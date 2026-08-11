@@ -21,16 +21,21 @@ const (
 )
 
 type ContainerInfo struct {
-	ID           string            `json:"id"`
-	Name         string            `json:"name"`
-	Image        string            `json:"image"`
-	State        string            `json:"state"`
-	Status       string            `json:"status"`
-	Created      time.Time         `json:"created"`
-	Labels       map[string]string `json:"labels,omitempty"`
-	LogCount     int               `json:"logCount"`
-	ErrorCount   int               `json:"errorCount"`
-	WarningCount int               `json:"warningCount"`
+	ID             string            `json:"id"`
+	Name           string            `json:"name"`
+	NodeID         string            `json:"nodeId,omitempty"`
+	NodeName       string            `json:"nodeName,omitempty"`
+	Image          string            `json:"image"`
+	State          string            `json:"state"`
+	Status         string            `json:"status"`
+	Created        time.Time         `json:"created"`
+	Labels         map[string]string `json:"labels,omitempty"`
+	LoggingDriver  string            `json:"loggingDriver,omitempty"`
+	LoggingOptions map[string]string `json:"loggingOptions,omitempty"`
+	OldestLogAt    time.Time         `json:"oldestLogAt,omitempty"`
+	LogCount       int               `json:"logCount"`
+	ErrorCount     int               `json:"errorCount"`
+	WarningCount   int               `json:"warningCount"`
 }
 
 type Resource struct {
@@ -102,9 +107,29 @@ type SearchRequest struct {
 	Stream          string
 	Sort            string
 	Selected        map[string]bool
+	SelectedNodes   map[string]bool
 	Limit           int
 	Cursor          *Cursor
 	TimelineBuckets int
+}
+
+// EntryBatch is the unit of durable ingestion. The batch identity is used for
+// at-least-once deduplication at the Hub, while Containers keeps resource
+// metadata available even when a container has not emitted a log yet.
+type EntryBatch struct {
+	AgentID    string
+	BootID     string
+	Sequence   uint64
+	Entries    []Entry
+	Containers []ContainerInfo
+}
+
+// LogStore is the Hub-side boundary between query processing and persistence.
+// Implementations must make WriteBatch idempotent for the batch identity.
+type LogStore interface {
+	WriteBatch(context.Context, EntryBatch) (bool, error)
+	SearchEntries(context.Context, SearchRequest) ([]Entry, error)
+	ListContainers(context.Context) ([]ContainerInfo, error)
 }
 
 type source interface {
@@ -115,8 +140,13 @@ type source interface {
 
 type Service struct {
 	docker source
+	store  LogStore
 }
 
 func NewService(client source) *Service {
 	return &Service{docker: client}
+}
+
+func NewStoreService(store LogStore) *Service {
+	return &Service{store: store}
 }

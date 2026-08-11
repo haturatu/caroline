@@ -5,6 +5,7 @@ export const state: AppState = {
 	query: "",
 	draftQuery: "",
 	searchText: "",
+	node: "",
 	showQuery: false,
 	container: "",
 	stream: "",
@@ -37,5 +38,10 @@ export const state: AppState = {
 		error: "",
 		search: "",
 		statusFilter: "all",
+	},
+	nodes: {
+		items: [],
+		loading: false,
+		error: "",
 	},
 };
