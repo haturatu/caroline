@@ -188,6 +188,9 @@ func (a *Agent) refreshContainers(ctx context.Context, source *docker.Client, qu
 	now := time.Now().UTC()
 	for index := range containers {
 		container := &containers[index]
+		if !docker.ShouldCollect(*container) {
+			continue
+		}
 		logConfig, inspectErr := source.InspectContainer(ctx, container.ID)
 		if inspectErr != nil {
 			log.Printf("agent Docker inspect failed for %s: %v", explorer.ContainerName(*container), inspectErr)

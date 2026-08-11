@@ -4,6 +4,8 @@ services:
       context: .
       target: agent
     container_name: caroline-agent
+    labels:
+      caroline.collect: "false"
     environment:
       # Required only on the first start when the named volume is empty.
       # The URL contains a single-use enrollment token.

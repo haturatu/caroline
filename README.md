@@ -59,7 +59,7 @@ CAROLINE_ENROLL_URL='https://caroline.example.com/api/v1/agent/enroll/...' \
 docker compose -f compose.agent.yml up -d
 ~~~
 
-The Agent Compose file builds locally; it does not pull an Agent image from GHCR. The Agent is read-only against `/var/run/docker.sock` and keeps its identity, Hub pin, and offline spool in the `caroline-agent-data` volume. The enrollment URL is single-use. After the first registration, the Agent reconnects using the persisted `identity.json` and `hub.json`.
+The Agent Compose file builds locally; it does not pull an Agent image from GHCR. The Agent is read-only against `/var/run/docker.sock` and keeps its identity, Hub pin, and offline spool in the `caroline-agent-data` volume. The enrollment URL is single-use. After the first registration, the Agent reconnects using the persisted `identity.json` and `hub.json`. The Compose service is labeled `caroline.collect=false`, so the Agent does not collect its own diagnostic logs. Apply the same label to any other container that should be excluded from log collection.
 
 To stop Caroline:
 

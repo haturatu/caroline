@@ -50,7 +50,7 @@ CAROLINE_ENROLL_URL='https://caroline.example.com/api/v1/agent/enroll/...' \
 docker compose -f compose.agent.yml up -d
 ```
 
-Agent用ComposeはAgent imageをGHCRから取得せず、対象ホスト上でローカルbuildします。Agentは`identity.json`、Hub pin、未送信spoolを`caroline-agent-data` volumeに保存します。Enrollment URLは単回利用で、初回登録後は保存済みidentityと`hub.json`を使ってHubへ再接続します。
+Agent用ComposeはAgent imageをGHCRから取得せず、対象ホスト上でローカルbuildします。Agentは`identity.json`、Hub pin、未送信spoolを`caroline-agent-data` volumeに保存します。Enrollment URLは単回利用で、初回登録後は保存済みidentityと`hub.json`を使ってHubへ再接続します。Compose serviceには`caroline.collect=false` labelを設定し、Agent自身の診断ログを収集対象から除外しています。同じlabelを付けたコンテナもログ収集対象外になります。
 
 停止する場合:
 
