@@ -2,28 +2,69 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"caroline/internal/alert"
 	"caroline/internal/alert/notifier"
-	"caroline/internal/docker"
 	"caroline/internal/explorer"
 	"caroline/internal/httpserver"
+	"caroline/internal/ingest"
 	"caroline/internal/logstream"
+	"caroline/internal/node"
+	"caroline/internal/storage/sqlite"
 )
 
 func main() {
 	port := os.Getenv("PORT")
-	host := os.Getenv("DOCKER_HOST")
-	dockerClient := docker.NewClient(host)
-	explorerService := explorer.NewService(dockerClient)
-	streamManager := logstream.NewManager(dockerClient)
+	dataDir := strings.TrimSpace(os.Getenv("CAROLINE_DATA_DIR"))
+	if dataDir == "" {
+		dataDir = "."
+	}
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		log.Fatalf("create Caroline data directory: %v", err)
+	}
+	databasePath := strings.TrimSpace(os.Getenv("CAROLINE_DB"))
+	if databasePath == "" {
+		databasePath = filepath.Join(dataDir, "caroline.db")
+	}
+	store, err := sqlite.Open(databasePath)
+	if err != nil {
+		log.Fatalf("open Caroline database %q: %v", databasePath, err)
+	}
+	defer store.Close()
+
+	hubKeyPath := strings.TrimSpace(os.Getenv("CAROLINE_HUB_KEY"))
+	if hubKeyPath == "" {
+		hubKeyPath = filepath.Join(dataDir, "hub.key")
+	}
+	hubPrivate, err := node.LoadOrCreateKey(hubKeyPath)
+	if err != nil {
+		log.Fatalf("load Hub identity: %v", err)
+	}
+	hubPublic, ok := hubPrivate.Public().(ed25519.PublicKey)
+	if !ok {
+		log.Fatal("Hub private key did not produce an Ed25519 public key")
+	}
+	nodeService, err := node.NewService(store, node.KeyID(hubPublic), hubPrivate)
+	if err != nil {
+		log.Fatalf("create node service: %v", err)
+	}
+	broker := logstream.NewBroker()
+	streamManager := logstream.NewBrokerManager(broker)
 	defer streamManager.Close()
+	explorerService := explorer.NewStoreService(store)
+	ingestService, err := ingest.NewService(store, nodeService, broker)
+	if err != nil {
+		log.Fatalf("create ingest service: %v", err)
+	}
+
 	alertStore := strings.TrimSpace(os.Getenv("ALERTS_FILE"))
 	if alertStore == "" {
-		alertStore = "alerts.json"
+		alertStore = filepath.Join(dataDir, "alerts.json")
 	}
 	alertEngine, err := alert.NewEngineWithPersistence(streamManager, notifier.Webhook{
 		ExplorerBaseURL: strings.TrimSpace(os.Getenv("CAROLINE_URL")),
@@ -38,8 +79,9 @@ func main() {
 			log.Printf("alert engine stopped: %v", err)
 		}
 	}()
-	server := httpserver.New(explorerService, dockerClient, streamManager, alertEngine)
 
+	server := httpserver.New(explorerService, nil, streamManager, alertEngine)
+	server.ConfigureHub(store, nodeService, ingestService, broker)
 	if err := server.Run(port); err != nil {
 		log.Fatal(err)
 	}
