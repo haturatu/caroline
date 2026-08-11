@@ -221,6 +221,46 @@ func TestStoreCleanupHonorsSourceAndMinBoundaries(t *testing.T) {
 	}
 }
 
+func TestSearchEntriesBoundsMemoryToMaxEntries(t *testing.T) {
+	store, err := OpenMemory()
+	if err != nil {
+		t.Fatalf("OpenMemory: %v", err)
+	}
+	defer store.Close()
+
+	base := time.Date(2026, 8, 11, 12, 0, 0, 0, time.UTC)
+	const total = explorer.MaxEntries + 1000
+	for start := 0; start < total; start += 2500 {
+		end := min(start+2500, total)
+		entries := make([]explorer.Entry, 0, end-start)
+		for index := start; index < end; index++ {
+			entries = append(entries, explorer.Entry{
+				InsertID:  fmt.Sprintf("entry-%06d", index),
+				Timestamp: base.Add(time.Duration(index) * time.Millisecond),
+				Severity:  "INFO", TextPayload: "payload", Summary: "summary",
+				Resource: explorer.Resource{Labels: map[string]string{
+					"node_id": "node-1", "node_name": "server-a",
+					"container_id": "container-1", "container_name": "api",
+				}},
+			})
+		}
+		accepted, writeErr := store.WriteBatch(context.Background(), explorer.EntryBatch{
+			AgentID: "agent-1", BootID: "boot-memory", Sequence: uint64(start / 2500), Entries: entries,
+		})
+		if writeErr != nil || !accepted {
+			t.Fatalf("WriteBatch(%d) accepted=%v err=%v", start, accepted, writeErr)
+		}
+	}
+
+	entries, err := store.SearchEntries(context.Background(), explorer.SearchRequest{From: base.Add(-time.Minute), To: base.Add(time.Hour)})
+	if err != nil {
+		t.Fatalf("SearchEntries: %v", err)
+	}
+	if len(entries) != explorer.MaxEntries {
+		t.Fatalf("SearchEntries loaded %d rows, want bounded scan of %d", len(entries), explorer.MaxEntries)
+	}
+}
+
 func TestSearchEntriesAppliesIndexedFiltersAcrossChunks(t *testing.T) {
 	store, err := OpenMemory()
 	if err != nil {
