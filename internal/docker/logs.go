@@ -3,8 +3,6 @@ package docker
 import (
 	"context"
 	"errors"
-	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -40,8 +38,7 @@ func (c *Client) Logs(ctx context.Context, containerID string, tail int, since t
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		message, _ := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
-		return nil, fmt.Errorf("docker API returned %s: %s", resp.Status, strings.TrimSpace(string(message)))
+		return nil, responseError(resp)
 	}
 	return readDockerFrames(resp.Body)
 }
@@ -69,8 +66,7 @@ func (c *Client) OldestLogTime(ctx context.Context, containerID string) (time.Ti
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		message, _ := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
-		return time.Time{}, fmt.Errorf("docker API returned %s: %s", resp.Status, strings.TrimSpace(string(message)))
+		return time.Time{}, responseError(resp)
 	}
 
 	var oldest time.Time
@@ -125,8 +121,7 @@ func (c *Client) FollowLogs(ctx context.Context, containerID string, since time.
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		message, _ := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
-		return fmt.Errorf("docker API returned %s: %s", resp.Status, strings.TrimSpace(string(message)))
+		return responseError(resp)
 	}
 	return streamDockerFrames(resp.Body, onFrame)
 }

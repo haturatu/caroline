@@ -32,13 +32,25 @@ docker compose up -d --build
 
 ブラウザで <http://localhost:8080> を開きます。
 
-通常の Compose 起動では Hub のみを起動し、`/var/run/docker.sock` は Hub にマウントしません。Hub はログとidentityを `caroline-data` volume に保存します。Agent は対象 Docker ホスト上で別途起動します。
+通常の Compose 起動では Hub のみを起動し、`/var/run/docker.sock` は Hub にマウントしません。Hub はログとidentityを `caroline-data` volume に保存します。リバースプロキシ配下で運用する場合は、Nodes画面が正しいEnrollment URLを生成できるよう`CAROLINE_PUBLIC_URL`を設定します。
 
 ```sh
-docker compose up -d --build caroline
+CAROLINE_PUBLIC_URL=https://caroline.example.com docker compose up -d --build
 ```
 
-Hub の `POST /api/nodes` で単回利用の Enrollment Token を発行し、`GET /api/health` の `hubPublicKey` とともに Agent に設定してください。Agent 用 Compose profile を使う場合は、対象ホストの Docker socket を read-only で `caroline-agent` にマウントします。
+各Dockerホストではリポジトリをcloneし、分離されたAgent用Composeを起動します。HubのNode画面からEnrollment URLをコピーし、初回起動時だけ指定します。
+
+```sh
+git clone https://github.com/haturatu/caroline
+cd caroline
+CAROLINE_ENROLL_URL='https://caroline.example.com/api/v1/agent/enroll/...' \
+  docker compose -f compose.agent.yml up -d --build
+
+# 2回目以降は永続volumeを使うためURLなしで再起動できます
+docker compose -f compose.agent.yml up -d
+```
+
+Agent用ComposeはAgent imageをGHCRから取得せず、対象ホスト上でローカルbuildします。Agentは`identity.json`、Hub pin、未送信spoolを`caroline-agent-data` volumeに保存します。Enrollment URLは単回利用で、初回登録後は保存済みidentityと`hub.json`を使ってHubへ再接続します。Compose serviceには`caroline.collect=false` labelを設定し、Agent自身の診断ログを収集対象から除外しています。同じlabelを付けたコンテナもログ収集対象外になります。
 
 停止する場合:
 
@@ -73,11 +85,13 @@ go run ./cmd/caroline-agent
 | `CAROLINE_DATA_DIR` | `.` | Hub の SQLite、Hub key、alert file の保存先 |
 | `CAROLINE_DB` | `$CAROLINE_DATA_DIR/caroline.db` | SQLite database のパス |
 | `CAROLINE_HUB_KEY` | `$CAROLINE_DATA_DIR/hub.key` | Hub の Ed25519 private key |
+| `CAROLINE_PUBLIC_URL` | — | Agent Enrollment URLを生成するための公開Hub URL |
 | `CAROLINE_RETENTION` | `7d` | ログ保持期間。`0`、`off`、`disabled`で無効化 |
 | `CAROLINE_MAX_STORAGE_SIZE` | `10GiB` | 保持ログpayloadの論理上限。`0`、`off`、`disabled`で無効化 |
 | `CAROLINE_RETENTION_MODE` | `independent` | `independent`はHub基準、`source`はDocker側から報告されたログ境界、`min`は両者の短い方を使用 |
 | `ALERTS_FILE` | `alerts.json` | アラートのJSON保存先 |
 | `CAROLINE_HUB_URL` | — | Agent: Hub の URL |
+| `CAROLINE_ENROLL_URL` | — | Agent: 単回利用のEnrollment URL。初回登録時にHub URLも保存 |
 | `CAROLINE_ENROLLMENT_TOKEN` | — | Agent: 単回利用の登録 token |
 | `CAROLINE_HUB_PUBLIC_KEY` | — | Agent: base64 raw Ed25519 Hub 公開鍵。TOFU を使わない限り必須 |
 | `CAROLINE_AGENT_STATE_DIR` | `/var/lib/caroline-agent` | Agent identity、永続Hub pin（`hub.json`）、spool の保存先 |
@@ -101,7 +115,7 @@ curl -X POST http://localhost:8080/api/nodes \
   -d '{"ttlSeconds":900}'
 ```
 
-`GET /api/health` の `hubPublicKey` を base64 化し、`CAROLINE_HUB_URL`、`CAROLINE_ENROLLMENT_TOKEN`、`CAROLINE_HUB_PUBLIC_KEY` を Agent に設定します。Agentは登録後に署名済みHub challengeを検証し、通常通信を永続Ed25519 keyで署名します。TOFUを使う場合は検証済みHub keyを`hub.json`へ保存し、再起動後も同じkeyだけを受け入れます。node management API は、信頼できるネットワークの外へ公開する前に reverse proxy 等のアクセス制御で保護してください。
+APIレスポンスの`enrollmentUrl`を初回Agent起動時の`CAROLINE_ENROLL_URL`に設定します。URL登録時にHub challengeを検証し、Hub公開鍵とHub URLを`hub.json`へ保存します。以後はAgentの永続Ed25519 keyで署名し、再起動時に同じidentityとHubへ再接続します。既存構成では`CAROLINE_HUB_URL`、`CAROLINE_ENROLLMENT_TOKEN`、`CAROLINE_HUB_PUBLIC_KEY`も引き続き利用できます。node management API は、信頼できるネットワークの外へ公開する前に reverse proxy 等のアクセス制御で保護してください。
 
 ## UI の使い方
 
@@ -329,7 +343,8 @@ go test ./...
 │       └── styles/      # CSS layer
 ├── static/              # Vite のビルドで生成される配信物
 ├── Dockerfile
-└── docker-compose.yml
+├── docker-compose.yml       # Hub
+└── compose.agent.yml        # Agent
 ```
 
 ## セキュリティと運用上の注意

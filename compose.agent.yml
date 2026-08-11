@@ -1,0 +1,28 @@
+services:
+  caroline-agent:
+    build:
+      context: .
+      target: agent
+    container_name: caroline-agent
+    labels:
+      caroline.collect: "false"
+    environment:
+      # Required only on the first start when the named volume is empty.
+      # The URL contains a single-use enrollment token.
+      CAROLINE_ENROLL_URL: ${CAROLINE_ENROLL_URL:-}
+      # Keep these for existing token-based deployments and explicit pinning.
+      CAROLINE_HUB_URL: ${CAROLINE_HUB_URL:-}
+      CAROLINE_ENROLLMENT_TOKEN: ${CAROLINE_ENROLLMENT_TOKEN:-}
+      CAROLINE_HUB_PUBLIC_KEY: ${CAROLINE_HUB_PUBLIC_KEY:-}
+      CAROLINE_AGENT_TRUST_ON_FIRST_USE: ${CAROLINE_AGENT_TRUST_ON_FIRST_USE:-false}
+      CAROLINE_AGENT_COMPRESSION: ${CAROLINE_AGENT_COMPRESSION:-gzip}
+      CAROLINE_AGENT_SPOOL_MAX_SIZE: ${CAROLINE_AGENT_SPOOL_MAX_SIZE:-1073741824}
+      CAROLINE_AGENT_SPOOL_MAX_AGE: ${CAROLINE_AGENT_SPOOL_MAX_AGE:-24h}
+      DOCKER_HOST: unix:///var/run/docker.sock
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - caroline-agent-data:/var/lib/caroline-agent
+    restart: unless-stopped
+
+volumes:
+  caroline-agent-data:

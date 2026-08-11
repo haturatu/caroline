@@ -1042,7 +1042,7 @@ function setupEvents(): void {
 	$("#createEnrollmentButton").addEventListener("click", () => {
 		void createEnrollment()
 			.then((response) => {
-				renderEnrollmentToken(response.token, response.enrollment.expiresAt);
+				renderEnrollmentToken(response.token, response.enrollmentUrl, response.enrollment.expiresAt);
 				toast(t("nodes.tokenCreated"));
 			})
 			.catch((error) => toast(errorText(error)));
@@ -1050,6 +1050,12 @@ function setupEvents(): void {
 	$("#copyEnrollmentButton").addEventListener("click", () => {
 		const token = $("#nodeEnrollmentToken").textContent || "";
 		void copyText(token).then((copied) =>
+			toast(copied ? t("common.linkCopied") : t("detail.copyFailed")),
+		);
+	});
+	$("#copyEnrollmentURLButton").addEventListener("click", () => {
+		const enrollmentURL = $("#nodeEnrollmentURL").textContent || "";
+		void copyText(enrollmentURL).then((copied) =>
 			toast(copied ? t("common.linkCopied") : t("detail.copyFailed")),
 		);
 	});

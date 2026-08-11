@@ -407,7 +407,8 @@ export function AppShell(): Node {
 						×
 					</button>
 				</div>
-				<div id="detailBody" />
+				<div className="detail-drawer-body" id="detailBody" />
+				<div className="detail-drawer-footer" id="detailFooter" hidden />
 			</dialog>
 			<div
 				className="toast"
@@ -753,10 +754,24 @@ function NodeManagementView(): Node {
 					<strong data-i18n="nodes.tokenCreated">Enrollment token created</strong>
 					<p id="nodeEnrollmentExpires" />
 				</div>
-				<code id="nodeEnrollmentToken" />
-				<button className="text-button" id="copyEnrollmentButton" type="button" data-i18n="nodes.copyToken">
-					Copy Token
-				</button>
+				<div className="node-enrollment-details">
+					<div>
+						<span data-i18n="nodes.tokenLabel">Token</span>
+						<code id="nodeEnrollmentToken" />
+					</div>
+					<div>
+						<span data-i18n="nodes.composeURL">Compose enrollment URL</span>
+						<code id="nodeEnrollmentURL" />
+					</div>
+				</div>
+				<div className="node-enrollment-actions">
+					<button className="text-button" id="copyEnrollmentButton" type="button" data-i18n="nodes.copyToken">
+						Copy Token
+					</button>
+					<button className="text-button" id="copyEnrollmentURLButton" type="button" data-i18n="nodes.copyEnrollmentURL">
+						Copy URL
+					</button>
+				</div>
 			</div>
 			<div className="node-list-panel">
 				<div className="node-list-heading">

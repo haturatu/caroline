@@ -41,13 +41,25 @@ docker compose up -d --build
 
 Open <http://localhost:8080> in a browser.
 
-The default Compose service is the Hub. It stores logs and identities in the `caroline-data` volume and does not mount the Docker socket. An Agent is a separate Compose profile because it must be placed on the Docker host whose logs it should collect:
+The default Compose service is the Hub. It stores logs and identities in the `caroline-data` volume and does not mount the Docker socket. Set `CAROLINE_PUBLIC_URL` when the Hub is behind a reverse proxy so the Nodes page can generate usable enrollment URLs.
 
 ~~~sh
-docker compose up -d --build caroline
+CAROLINE_PUBLIC_URL=https://caroline.example.com docker compose up -d --build
 ~~~
 
-Generate an enrollment token from the Hub's node API, then start the Agent with that token and the Hub public key. The Agent is read-only against `/var/run/docker.sock` and keeps its identity and offline spool in `caroline-agent-data`.
+On each Docker host, clone the repository and start the separate Agent Compose file. Copy the enrollment URL from the Hub's Nodes page and use it only for the first start:
+
+~~~sh
+git clone https://github.com/haturatu/caroline
+cd caroline
+CAROLINE_ENROLL_URL='https://caroline.example.com/api/v1/agent/enroll/...' \
+  docker compose -f compose.agent.yml up -d --build
+
+# Later restarts only need the persisted named volume.
+docker compose -f compose.agent.yml up -d
+~~~
+
+The Agent Compose file builds locally; it does not pull an Agent image from GHCR. The Agent is read-only against `/var/run/docker.sock` and keeps its identity, Hub pin, and offline spool in the `caroline-agent-data` volume. The enrollment URL is single-use. After the first registration, the Agent reconnects using the persisted `identity.json` and `hub.json`. The Compose service is labeled `caroline.collect=false`, so the Agent does not collect its own diagnostic logs. Apply the same label to any other container that should be excluded from log collection.
 
 To stop Caroline:
 
@@ -82,11 +94,13 @@ The server listens on <http://localhost:8080> by default.
 | `CAROLINE_DATA_DIR` | `.` | Hub data directory for the SQLite database, Hub key, and default alert file |
 | `CAROLINE_DB` | `$CAROLINE_DATA_DIR/caroline.db` | SQLite database path |
 | `CAROLINE_HUB_KEY` | `$CAROLINE_DATA_DIR/hub.key` | Hub Ed25519 private key |
+| `CAROLINE_PUBLIC_URL` | — | Public Hub URL used to generate Agent enrollment URLs |
 | `CAROLINE_RETENTION` | `7d` | Log retention duration; `0`, `off`, or `disabled` turns it off |
 | `CAROLINE_MAX_STORAGE_SIZE` | `10GiB` | Logical retained log payload budget; `0`, `off`, or `disabled` turns it off |
 | `CAROLINE_RETENTION_MODE` | `independent` | `independent` uses Hub retention, `source` follows reported Docker log boundaries, and `min` applies the shorter of the two |
 | `ALERTS_FILE` | `alerts.json` | JSON file used to persist alert rules and state |
 | `CAROLINE_HUB_URL` | — | Agent: Hub base URL |
+| `CAROLINE_ENROLL_URL` | — | Agent: single-use enrollment URL; derives and persists the Hub URL on first registration |
 | `CAROLINE_ENROLLMENT_TOKEN` | — | Agent: single-use registration token |
 | `CAROLINE_HUB_PUBLIC_KEY` | — | Agent: base64 raw Ed25519 Hub public key; required unless TOFU is explicitly enabled |
 | `CAROLINE_AGENT_STATE_DIR` | `/var/lib/caroline-agent` | Agent identity, persistent Hub pin (`hub.json`), and disk spool directory |
@@ -104,7 +118,7 @@ By default, the Hub deletes logs older than 7 days and also enforces a 10 GiB lo
 
 ### Registering an Agent
 
-Create a short-lived, single-use token from the Hub:
+Create a short-lived, single-use enrollment URL from the Hub's Nodes page, or create one through the API:
 
 ~~~sh
 curl -X POST http://localhost:8080/api/nodes \
@@ -112,7 +126,7 @@ curl -X POST http://localhost:8080/api/nodes \
   -d '{"ttlSeconds":900}'
 ~~~
 
-Read `hubPublicKey` from `GET /api/health`, encode its raw bytes with base64, and configure the Agent with `CAROLINE_HUB_URL`, `CAROLINE_ENROLLMENT_TOKEN`, and `CAROLINE_HUB_PUBLIC_KEY`. The Agent registers once, verifies a signed Hub challenge, and subsequently signs every request with its persistent Ed25519 key. If TOFU is enabled, the verified Hub key is persisted in `hub.json` under `CAROLINE_AGENT_STATE_DIR` and reused after restart. Protect the node-management endpoints with the deployment's access-control layer before exposing them outside a trusted network.
+The API response includes `enrollmentUrl`. Configure the Agent with `CAROLINE_ENROLL_URL` for its first start. The URL registration response is verified and the Hub public key plus Hub URL are persisted in `hub.json`; subsequent requests use the Agent's persistent Ed25519 key. Existing deployments can continue using `CAROLINE_HUB_URL`, `CAROLINE_ENROLLMENT_TOKEN`, and `CAROLINE_HUB_PUBLIC_KEY`. Protect the node-management endpoints with the deployment's access-control layer before exposing them outside a trusted network.
 
 ## Using the UI
 
@@ -338,7 +352,8 @@ go test ./...
 │       └── styles/      # CSS layers
 ├── static/              # Generated Vite serving assets from npm run build
 ├── Dockerfile
-└── docker-compose.yml
+├── docker-compose.yml       # Hub
+└── compose.agent.yml        # Agent
 ~~~
 
 ## Security and operational notes

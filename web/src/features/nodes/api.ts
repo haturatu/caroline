@@ -3,6 +3,7 @@ import type { NodeInfo } from "../../shared/types";
 
 export type EnrollmentResponse = {
 	token: string;
+	enrollmentUrl: string;
 	enrollment: {
 		id: string;
 		expiresAt: string;

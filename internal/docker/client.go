@@ -3,7 +3,6 @@ package docker
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"log"
 	"net"
@@ -111,14 +110,22 @@ func (c *Client) do(ctx context.Context, method, endpoint string, out any) error
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		message, _ := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
-		return fmt.Errorf("docker API returned %s: %s", resp.Status, strings.TrimSpace(string(message)))
+		return responseError(resp)
 	}
 	if out == nil {
 		_, _ = io.Copy(io.Discard, resp.Body)
 		return nil
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+func responseError(resp *http.Response) error {
+	message, _ := io.ReadAll(io.LimitReader(resp.Body, 16*1024))
+	return &APIError{
+		StatusCode: resp.StatusCode,
+		Status:     resp.Status,
+		Message:    strings.TrimSpace(string(message)),
+	}
 }
 
 func (c *Client) Check(ctx context.Context) (Version, error) {

@@ -482,7 +482,7 @@
 
 .node-enrollment-result {
 	display: grid;
-	grid-template-columns: minmax(0, 1fr) auto auto;
+	grid-template-columns: minmax(0, 1fr) auto;
 	align-items: center;
 	gap: 16px;
 	margin-block-end: 12px;
@@ -503,6 +503,7 @@
 }
 
 .node-enrollment-result code {
+	display: block;
 	max-inline-size: 420px;
 	overflow: auto;
 	padding: 7px 9px;
@@ -511,6 +512,35 @@
 	color: var(--text);
 	background: var(--surface);
 	font: 11px var(--mono);
+}
+
+.node-enrollment-details {
+	display: grid;
+	grid-column: 1;
+	grid-row: 2;
+	gap: 8px;
+	min-inline-size: 0;
+}
+
+.node-enrollment-details span {
+	display: block;
+	margin-block-end: 3px;
+	color: var(--muted);
+	font-size: 11px;
+}
+
+.node-enrollment-details code {
+	max-inline-size: none;
+}
+
+.node-enrollment-actions {
+	display: flex;
+	grid-column: 2;
+	grid-row: 1 / span 2;
+	align-self: center;
+	flex-wrap: wrap;
+	justify-content: flex-end;
+	gap: 8px;
 }
 
 .node-list-panel {

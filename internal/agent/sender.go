@@ -151,6 +151,9 @@ func (s *Sender) ensureAuthenticatedLocked(ctx context.Context) error {
 	if s.authenticated {
 		return nil
 	}
+	if s.config.EnrollURL != "" && len(s.hubPublicKey) == 0 {
+		return s.enrollLocked(ctx)
+	}
 	if strings.TrimSpace(s.config.EnrollmentToken) != "" {
 		if err := s.registerLocked(ctx); err != nil {
 			// A Compose environment may keep the single-use token after the
@@ -166,19 +169,31 @@ func (s *Sender) ensureAuthenticatedLocked(ctx context.Context) error {
 	return s.refreshHubChallengeLocked(ctx)
 }
 
-func (s *Sender) registerLocked(ctx context.Context) error {
-	nonce, err := agentproto.NewNonce()
+func (s *Sender) enrollLocked(ctx context.Context) error {
+	body, err := s.registrationBody("")
 	if err != nil {
 		return err
 	}
-	body, err := json.Marshal(agentproto.RegisterRequest{
-		ProtocolVersion: agentproto.ProtocolVersion, AgentVersion: s.config.AgentVersion,
-		EnrollmentToken: s.config.EnrollmentToken, AgentID: s.identity.AgentID,
-		PublicKey: s.identity.PublicKey, Fingerprint: s.identity.Fingerprint,
-		Hostname: s.identity.Hostname, OS: s.identity.OS, Architecture: s.identity.Architecture,
-		Nonce:        nonce,
-		Capabilities: agentCapabilities,
-	})
+	responseBody, err := s.doJSONURLLocked(ctx, http.MethodPost, s.config.EnrollURL, body, false)
+	if err != nil {
+		return err
+	}
+	var response agentproto.RegisterResponse
+	if err := json.Unmarshal(responseBody, &response); err != nil {
+		return err
+	}
+	if response.AgentID != s.identity.AgentID {
+		return fmt.Errorf("enrollment response agentId %q does not match local identity", response.AgentID)
+	}
+	if err := s.acceptHubChallengeWithTOFU(response.HubPublicKey, response.HubKeyID, response.Signature, response.AgentID, response.Nonce, response.ChallengeID, response.ExpiresAt, true); err != nil {
+		return err
+	}
+	s.authenticated = true
+	return nil
+}
+
+func (s *Sender) registerLocked(ctx context.Context) error {
+	body, err := s.registrationBody(s.config.EnrollmentToken)
 	if err != nil {
 		return err
 	}
@@ -190,12 +205,29 @@ func (s *Sender) registerLocked(ctx context.Context) error {
 	if err := json.Unmarshal(responseBody, &response); err != nil {
 		return err
 	}
+	if response.AgentID != s.identity.AgentID {
+		return fmt.Errorf("registration response agentId %q does not match local identity", response.AgentID)
+	}
 	if err := s.acceptHubChallenge(response.HubPublicKey, response.HubKeyID, response.Signature, response.AgentID, response.Nonce, response.ChallengeID, response.ExpiresAt); err != nil {
 		return err
 	}
 	s.authenticated = true
 	s.config.EnrollmentToken = ""
 	return nil
+}
+
+func (s *Sender) registrationBody(enrollmentToken string) ([]byte, error) {
+	nonce, err := agentproto.NewNonce()
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(agentproto.RegisterRequest{
+		ProtocolVersion: agentproto.ProtocolVersion, AgentVersion: s.config.AgentVersion,
+		EnrollmentToken: enrollmentToken, AgentID: s.identity.AgentID,
+		PublicKey: s.identity.PublicKey, Fingerprint: s.identity.Fingerprint,
+		Hostname: s.identity.Hostname, OS: s.identity.OS, Architecture: s.identity.Architecture,
+		Nonce: nonce, Capabilities: agentCapabilities,
+	})
 }
 
 func (s *Sender) refreshHubChallengeLocked(ctx context.Context) error {
@@ -223,12 +255,16 @@ func (s *Sender) refreshHubChallengeLocked(ctx context.Context) error {
 }
 
 func (s *Sender) acceptHubChallenge(publicKey []byte, keyID string, signature []byte, agentID, agentNonce, challengeID string, expiresAt time.Time) error {
+	return s.acceptHubChallengeWithTOFU(publicKey, keyID, signature, agentID, agentNonce, challengeID, expiresAt, s.config.TrustHubOnFirstUse)
+}
+
+func (s *Sender) acceptHubChallengeWithTOFU(publicKey []byte, keyID string, signature []byte, agentID, agentNonce, challengeID string, expiresAt time.Time, allowTOFU bool) error {
 	if len(publicKey) != ed25519.PublicKeySize || len(signature) != ed25519.SignatureSize {
 		return errors.New("hub challenge is malformed")
 	}
 	key := s.hubPublicKey
 	if len(s.hubPublicKey) == 0 {
-		if !s.config.TrustHubOnFirstUse {
+		if !allowTOFU {
 			return errors.New("CAROLINE_HUB_PUBLIC_KEY is required unless trust-on-first-use is enabled")
 		}
 		key = append(ed25519.PublicKey(nil), publicKey...)
@@ -244,7 +280,7 @@ func (s *Sender) acceptHubChallenge(publicKey []byte, keyID string, signature []
 	}
 	if len(s.hubPublicKey) == 0 {
 		s.hubPublicKey = key
-		if err := saveHubPin(s.hubPinPath, keyID, key); err != nil {
+		if err := saveHubPin(s.hubPinPath, keyID, key, s.config.HubURL); err != nil {
 			return err
 		}
 	}
@@ -258,11 +294,15 @@ func (s *Sender) doSignedLocked(ctx context.Context, method, path string, body [
 }
 
 func (s *Sender) doJSONLocked(ctx context.Context, method, path string, body []byte, signed bool) ([]byte, error) {
+	return s.doJSONURLLocked(ctx, method, s.config.HubURL+path, body, signed)
+}
+
+func (s *Sender) doJSONURLLocked(ctx context.Context, method, targetURL string, body []byte, signed bool) ([]byte, error) {
 	transportBody, encoding, err := encodeBody(body, s.config.Compression)
 	if err != nil {
 		return nil, err
 	}
-	request, err := http.NewRequestWithContext(ctx, method, s.config.HubURL+path, bytes.NewReader(transportBody))
+	request, err := http.NewRequestWithContext(ctx, method, targetURL, bytes.NewReader(transportBody))
 	if err != nil {
 		return nil, err
 	}
