@@ -357,6 +357,9 @@ LIMIT ?`
 			if len(entries)-chunkStart < searchChunkSize {
 				break
 			}
+			if len(entries) >= explorer.MaxEntries {
+				break
+			}
 			hasCursor = true
 		}
 		return nil
