@@ -100,6 +100,8 @@ Stopping Streaming closes the SSE connection. Changing filters, the time range, 
 
 Create an alert from the current query with a threshold, time window, cooldown, severity, labels, an optional runbook URL, and a sample redaction mode. The UI keeps only `Runbook URL` and `Webhook URL`; Caroline detects the webhook provider from the HTTPS host and path. It supports Discord (`discord.com/api/webhooks/...`), Slack Incoming Webhooks (`hooks.slack.com/services/...`), ntfy topics (`ntfy.sh/<topic>`), Microsoft Teams Workflows (`*.logic.azure.com/.../paths/invoke` and `*.api.powerplatform.com/powerautomate/...`), and generic JSON for other URLs. Set `CAROLINE_URL` to the public Caroline URL to include a time-bounded Explorer deep link in notifications. The alert engine consumes the same shared Docker `follow` streams as SSE, so each running container has at most one Caroline-side follow stream regardless of how many alert rules use it.
 
+Use **Manage Alerts** in Explorer to open the dedicated policy management view. It provides policy, firing, enabled, and notification summaries; name/query search; status filtering; edit; pause/resume; and delete actions. Webhook URLs remain hidden from list and API responses, and partial edits retain an existing webhook unless it is explicitly removed.
+
 Rules and alert state are persisted to the JSON file configured by `ALERTS_FILE` and restored on startup. Caroline does not store log bodies or matching entries themselves; it keeps timestamps and small incident metadata such as firing start, peak count, and container name. A rule transitions between `OK` and `FIRING`, and sends a webhook notification for firing and resolution events when a webhook is configured. Docker Compose stores the file in the `caroline-data` volume.
 
 ### Timeline, Fields, and Logs
@@ -109,7 +111,7 @@ Rules and alert state are persisted to the JSON file configured by `ALERTS_FILE`
 - **Logs**: Supports newest/oldest sorting, Wrap Lines, and Load More.
 - Selecting a row opens a detail drawer with the Summary, Payload, metadata, and copyable Entry JSON.
 
-On mobile, use the menu button in the upper-left corner to open Logs, Timeline, and Fields. Fields appears as a bottom sheet.
+On desktop and mobile, use the menu button in the upper-left corner to open the navigation drawer. The Explore and Detect categories are collapsible and expose the implemented Logs, Timeline, Fields, and Alerts views. Fields appears as a bottom sheet on mobile.
 
 ### Keyboard shortcuts
 
@@ -238,7 +240,7 @@ The SSE endpoint and alert engine share a `logstream.Manager`; a browser connect
 
 ### `/api/alerts`
 
-Alert rules are persisted in the JSON file configured by `ALERTS_FILE`. `GET /api/alerts` lists rules, `POST /api/alerts` creates one, `GET` or `PATCH`/`PUT` `/api/alerts/{id}` reads or updates one, and `DELETE` `/api/alerts/{id}` removes one. Because the file contains webhook URLs, Caroline writes it with `0600` permissions.
+Alert rules are persisted in the JSON file configured by `ALERTS_FILE`. `GET /api/alerts` lists rules, `POST /api/alerts` creates one, `GET` or `PUT` `/api/alerts/{id}` reads or replaces one, `PATCH` `/api/alerts/{id}` updates selected fields, and `DELETE` `/api/alerts/{id}` removes one. Omitted fields in a PATCH are retained. Because the file contains webhook URLs, Caroline writes it with `0600` permissions.
 
 Create a rule with JSON such as:
 
