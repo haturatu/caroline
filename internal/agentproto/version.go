@@ -3,7 +3,7 @@ package agentproto
 import "sort"
 
 const (
-	ProtocolVersion = 1
+	ProtocolVersion = 2
 	ProtocolHeader  = "Caroline-Agent-Protocol"
 	MaxBatchEntries = 500
 	MaxBatchBytes   = 1 << 20

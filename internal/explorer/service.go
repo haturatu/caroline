@@ -193,10 +193,13 @@ func (s *Service) searchStore(ctx context.Context, request SearchRequest) (Respo
 		if !MatchesFilters(entry, request.Query, request.Severity, request.Stream) {
 			continue
 		}
-		if len(request.Selected) > 0 && !request.Selected[entry.Resource.Labels["container_id"]] {
+		if len(request.Selected) > 0 && !matchesSelection(request.Selected,
+			entry.Resource.Labels["container_id"], entry.Resource.Labels["container_name"],
+			shortID(entry.Resource.Labels["container_id"])) {
 			continue
 		}
-		if len(request.SelectedNodes) > 0 && !request.SelectedNodes[entry.Resource.Labels["node_id"]] {
+		if len(request.SelectedNodes) > 0 && !matchesSelection(request.SelectedNodes,
+			entry.Resource.Labels["node_id"], entry.Resource.Labels["node_name"]) {
 			continue
 		}
 		response.Entries = append(response.Entries, entry)
@@ -237,6 +240,22 @@ func (s *Service) searchStore(ctx context.Context, request SearchRequest) (Respo
 	response.Timeline = BuildTimeline(response.Entries, request.From, request.To, request.TimelineBuckets)
 	response.Fields = BuildFieldGroups(response.Entries)
 	return paginateResponse(response, request), nil
+}
+
+func matchesSelection(selection map[string]bool, values ...string) bool {
+	for _, value := range values {
+		if selection[value] {
+			return true
+		}
+	}
+	return false
+}
+
+func shortID(value string) string {
+	if len(value) > 12 {
+		return value[:12]
+	}
+	return value
 }
 
 func paginateResponse(response Response, request SearchRequest) Response {

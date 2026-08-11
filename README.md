@@ -88,7 +88,7 @@ The server listens on <http://localhost:8080> by default.
 | `CAROLINE_HUB_URL` | — | Agent: Hub base URL |
 | `CAROLINE_ENROLLMENT_TOKEN` | — | Agent: single-use registration token |
 | `CAROLINE_HUB_PUBLIC_KEY` | — | Agent: base64 raw Ed25519 Hub public key; required unless TOFU is explicitly enabled |
-| `CAROLINE_AGENT_STATE_DIR` | `/var/lib/caroline-agent` | Agent identity and disk spool directory |
+| `CAROLINE_AGENT_STATE_DIR` | `/var/lib/caroline-agent` | Agent identity, persistent Hub pin (`hub.json`), and disk spool directory |
 | `CAROLINE_AGENT_SPOOL_MAX_SIZE` | `1GiB` | Agent spool size limit; oldest batches are dropped after the limit |
 | `CAROLINE_AGENT_SPOOL_MAX_AGE` | `24h` | Agent spool age limit |
 | `CAROLINE_AGENT_TRUST_ON_FIRST_USE` | `false` | Allow the first Hub key to be pinned automatically; prefer `CAROLINE_HUB_PUBLIC_KEY` |
@@ -109,7 +109,7 @@ curl -X POST http://localhost:8080/api/nodes \
   -d '{"ttlSeconds":900}'
 ~~~
 
-Read `hubPublicKey` from `GET /api/health`, encode its raw bytes with base64, and configure the Agent with `CAROLINE_HUB_URL`, `CAROLINE_ENROLLMENT_TOKEN`, and `CAROLINE_HUB_PUBLIC_KEY`. The Agent registers once, receives an authenticated session, and subsequently signs every request with its persistent Ed25519 key. Protect the node-management endpoints with the deployment's access-control layer before exposing them outside a trusted network.
+Read `hubPublicKey` from `GET /api/health`, encode its raw bytes with base64, and configure the Agent with `CAROLINE_HUB_URL`, `CAROLINE_ENROLLMENT_TOKEN`, and `CAROLINE_HUB_PUBLIC_KEY`. The Agent registers once, verifies a signed Hub challenge, and subsequently signs every request with its persistent Ed25519 key. If TOFU is enabled, the verified Hub key is persisted in `hub.json` under `CAROLINE_AGENT_STATE_DIR` and reused after restart. Protect the node-management endpoints with the deployment's access-control layer before exposing them outside a trusted network.
 
 ## Using the UI
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -15,7 +16,7 @@ import (
 	"zombiezen.com/go/sqlite/sqlitex"
 )
 
-const searchReadLimit = explorer.MaxEntries * 4
+const searchChunkSize = 1000
 
 var errNotFound = errors.New("sqlite row was not found")
 
@@ -250,39 +251,131 @@ func (s *Store) SearchEntries(ctx context.Context, request explorer.SearchReques
 	if to.IsZero() {
 		to = time.Now().UTC()
 	}
-	order := "DESC"
-	if strings.EqualFold(request.Sort, "asc") {
-		order = "ASC"
-	}
 	entries := make([]explorer.Entry, 0)
 	err := s.withConn(ctx, func(conn *sqlite.Conn) error {
-		return execRows(conn, `
+		baseWhere, baseArgs := searchWhere(request, from, to)
+		var lastTimestamp int64
+		var lastInsertID string
+		hasCursor := false
+		for {
+			where := baseWhere
+			args := append([]any(nil), baseArgs...)
+			if hasCursor {
+				where += " AND (timestamp_ns > ? OR (timestamp_ns = ? AND insert_id > ?))"
+				args = append(args, lastTimestamp, lastTimestamp, lastInsertID)
+			}
+			query := `
 SELECT insert_id, timestamp_ns, severity, log_name, stream, text_payload,
        json_payload, labels_json, resource_labels_json, summary
 FROM logs
-WHERE timestamp_ns >= ?1 AND timestamp_ns <= ?2
-ORDER BY timestamp_ns `+order+`, insert_id `+order+`
-LIMIT ?3`, []any{from.UnixNano(), to.UnixNano(), searchReadLimit}, func(stmt *sqlite.Stmt) error {
-			entry := explorer.Entry{
-				InsertID: stmt.ColumnText(0), Timestamp: time.Unix(0, stmt.ColumnInt64(1)).UTC(),
-				Severity: stmt.ColumnText(2), LogName: stmt.ColumnText(3), Stream: stmt.ColumnText(4),
-				TextPayload: stmt.ColumnText(5), Resource: explorer.Resource{Type: "docker_container", Labels: map[string]string{}},
-				Summary: stmt.ColumnText(9),
-			}
-			if err := decodeJSON(stmt.ColumnText(6), &entry.JSONPayload); err != nil {
+WHERE ` + where + `
+ORDER BY timestamp_ns ASC, insert_id ASC
+LIMIT ?`
+			chunkStart := len(entries)
+			if err := execRows(conn, query, append(args, searchChunkSize), func(stmt *sqlite.Stmt) error {
+				entry, err := entryFromStmt(stmt)
+				if err != nil {
+					return err
+				}
+				entries = append(entries, entry)
+				lastTimestamp = stmtTimestamp(entry)
+				lastInsertID = entry.InsertID
+				return nil
+			}); err != nil {
 				return err
 			}
-			if err := decodeJSON(stmt.ColumnText(7), &entry.Labels); err != nil {
-				return err
+			if len(entries)-chunkStart < searchChunkSize {
+				break
 			}
-			if err := decodeJSON(stmt.ColumnText(8), &entry.Resource.Labels); err != nil {
-				return err
+			hasCursor = true
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].Timestamp.Equal(entries[j].Timestamp) {
+			if strings.EqualFold(request.Sort, "asc") {
+				return entries[i].InsertID < entries[j].InsertID
 			}
-			entries = append(entries, entry)
-			return nil
-		})
+			return entries[i].InsertID > entries[j].InsertID
+		}
+		if strings.EqualFold(request.Sort, "asc") {
+			return entries[i].Timestamp.Before(entries[j].Timestamp)
+		}
+		return entries[i].Timestamp.After(entries[j].Timestamp)
 	})
 	return entries, err
+}
+
+func searchWhere(request explorer.SearchRequest, from, to time.Time) (string, []any) {
+	clauses := []string{"timestamp_ns >= ?", "timestamp_ns <= ?"}
+	args := []any{from.UnixNano(), to.UnixNano()}
+	if severity := strings.TrimSpace(request.Severity); severity != "" && !strings.EqualFold(severity, "ALL") {
+		clauses = append(clauses, "severity = ?")
+		args = append(args, strings.ToUpper(severity))
+	}
+	if stream := strings.TrimSpace(request.Stream); stream != "" {
+		clauses = append(clauses, "stream = ?")
+		args = append(args, stream)
+	}
+	if values := enabledSelection(request.SelectedNodes); len(values) > 0 {
+		placeholders := strings.TrimRight(strings.Repeat("?,", len(values)), ",")
+		clauses = append(clauses, "(node_id IN ("+placeholders+") OR node_name IN ("+placeholders+"))")
+		args = append(args, stringArgs(values)...)
+		args = append(args, stringArgs(values)...)
+	}
+	if values := enabledSelection(request.Selected); len(values) > 0 {
+		placeholders := strings.TrimRight(strings.Repeat("?,", len(values)), ",")
+		clauses = append(clauses, "(container_id IN ("+placeholders+") OR container_name IN ("+placeholders+") OR substr(container_id, 1, 12) IN ("+placeholders+"))")
+		args = append(args, stringArgs(values)...)
+		args = append(args, stringArgs(values)...)
+		args = append(args, stringArgs(values)...)
+	}
+	return strings.Join(clauses, " AND "), args
+}
+
+func enabledSelection(selection map[string]bool) []string {
+	values := make([]string, 0, len(selection))
+	for value, enabled := range selection {
+		if enabled && strings.TrimSpace(value) != "" {
+			values = append(values, value)
+		}
+	}
+	sort.Strings(values)
+	return values
+}
+
+func stringArgs(values []string) []any {
+	args := make([]any, len(values))
+	for index, value := range values {
+		args[index] = value
+	}
+	return args
+}
+
+func entryFromStmt(stmt *sqlite.Stmt) (explorer.Entry, error) {
+	entry := explorer.Entry{
+		InsertID: stmt.ColumnText(0), Timestamp: time.Unix(0, stmt.ColumnInt64(1)).UTC(),
+		Severity: stmt.ColumnText(2), LogName: stmt.ColumnText(3), Stream: stmt.ColumnText(4),
+		TextPayload: stmt.ColumnText(5), Resource: explorer.Resource{Type: "docker_container", Labels: map[string]string{}},
+		Summary: stmt.ColumnText(9),
+	}
+	if err := decodeJSON(stmt.ColumnText(6), &entry.JSONPayload); err != nil {
+		return explorer.Entry{}, err
+	}
+	if err := decodeJSON(stmt.ColumnText(7), &entry.Labels); err != nil {
+		return explorer.Entry{}, err
+	}
+	if err := decodeJSON(stmt.ColumnText(8), &entry.Resource.Labels); err != nil {
+		return explorer.Entry{}, err
+	}
+	return entry, nil
+}
+
+func stmtTimestamp(entry explorer.Entry) int64 {
+	return entry.Timestamp.UnixNano()
 }
 
 func (s *Store) ListContainers(ctx context.Context) ([]explorer.ContainerInfo, error) {
@@ -310,7 +403,7 @@ FROM containers ORDER BY node_name, container_name, container_id`, nil, func(stm
 
 func (s *Store) SaveNode(ctx context.Context, value node.Node) error {
 	return s.withConn(ctx, func(conn *sqlite.Conn) error {
-		return exec(conn, `
+		err := exec(conn, `
 INSERT INTO nodes(id, name, fingerprint, public_key, hostname, os, architecture,
                   agent_version, protocol_version, connected_at_ns, last_seen_at_ns, status)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
@@ -318,11 +411,16 @@ ON CONFLICT(id) DO UPDATE SET name=excluded.name, fingerprint=excluded.fingerpri
     public_key=excluded.public_key, hostname=excluded.hostname, os=excluded.os,
     architecture=excluded.architecture, agent_version=excluded.agent_version,
     protocol_version=excluded.protocol_version, connected_at_ns=excluded.connected_at_ns,
-    last_seen_at_ns=excluded.last_seen_at_ns, status=excluded.status`, []any{
+    last_seen_at_ns=excluded.last_seen_at_ns, status=excluded.status
+WHERE nodes.status != 'revoked'`, []any{
 			value.ID, value.Name, value.Fingerprint, value.PublicKey, value.Hostname, value.OS,
 			value.Architecture, value.AgentVersion, value.ProtocolVersion, value.ConnectedAt.UnixNano(),
 			value.LastSeenAt.UnixNano(), string(value.Status),
 		})
+		if err == nil && conn.Changes() == 0 {
+			return node.ErrNodeRevoked
+		}
+		return err
 	})
 }
 
@@ -339,7 +437,7 @@ func (s *Store) GetNode(ctx context.Context, id string) (node.Node, error) {
 			return err
 		}
 		if !found {
-			return errNotFound
+			return node.ErrNodeNotFound
 		}
 		return nil
 	})
@@ -448,8 +546,11 @@ CREATE TABLE IF NOT EXISTS logs (
 );
 CREATE INDEX IF NOT EXISTS logs_timestamp_idx ON logs(timestamp_ns DESC, insert_id DESC);
 CREATE INDEX IF NOT EXISTS logs_node_idx ON logs(node_id, timestamp_ns DESC);
+CREATE INDEX IF NOT EXISTS logs_node_name_idx ON logs(node_name, timestamp_ns DESC);
 CREATE INDEX IF NOT EXISTS logs_container_idx ON logs(container_id, timestamp_ns DESC);
+CREATE INDEX IF NOT EXISTS logs_container_name_idx ON logs(container_name, timestamp_ns DESC);
 CREATE INDEX IF NOT EXISTS logs_severity_idx ON logs(severity, timestamp_ns DESC);
+CREATE INDEX IF NOT EXISTS logs_stream_idx ON logs(stream, timestamp_ns DESC);
 CREATE TABLE IF NOT EXISTS ingest_batches (
     agent_id TEXT NOT NULL, boot_id TEXT NOT NULL, sequence INTEGER NOT NULL, received_at_ns INTEGER NOT NULL,
     PRIMARY KEY (agent_id, boot_id, sequence)
@@ -466,7 +567,7 @@ CREATE INDEX IF NOT EXISTS containers_node_idx ON containers(node_id, container_
 CREATE TABLE IF NOT EXISTS nodes (
     id TEXT PRIMARY KEY, name TEXT NOT NULL, fingerprint TEXT NOT NULL, public_key BLOB NOT NULL,
     hostname TEXT NOT NULL DEFAULT '', os TEXT NOT NULL DEFAULT '', architecture TEXT NOT NULL DEFAULT '',
-    agent_version TEXT NOT NULL DEFAULT '', protocol_version INTEGER NOT NULL DEFAULT 1,
+    agent_version TEXT NOT NULL DEFAULT '', protocol_version INTEGER NOT NULL DEFAULT 2,
     connected_at_ns INTEGER NOT NULL DEFAULT 0, last_seen_at_ns INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS enrollment_tokens (

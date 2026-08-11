@@ -42,6 +42,8 @@ func (s *Server) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 		status := http.StatusBadRequest
 		if errors.Is(err, node.ErrEnrollment) {
 			status = http.StatusUnauthorized
+		} else if errors.Is(err, node.ErrNodeRevoked) {
+			status = http.StatusForbidden
 		}
 		writeError(w, status, err.Error())
 		return
@@ -49,9 +51,9 @@ func (s *Server) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, response)
 }
 
-func (s *Server) handleAgentSession(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleAgentChallenge(w http.ResponseWriter, r *http.Request) {
 	if s.nodes == nil {
-		writeError(w, http.StatusServiceUnavailable, "agent sessions are unavailable")
+		writeError(w, http.StatusServiceUnavailable, "agent challenge endpoint is unavailable")
 		return
 	}
 	body, err := readAgentBody(w, r, maxRegisterBytes)
@@ -59,16 +61,16 @@ func (s *Server) handleAgentSession(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	var request agentproto.SessionRequest
+	var request agentproto.ChallengeRequest
 	if err := json.Unmarshal(body, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid session payload")
+		writeError(w, http.StatusBadRequest, "invalid agent challenge payload")
 		return
 	}
 	if _, err := s.authenticateAgent(r, request.AgentID, body); err != nil {
 		writeAgentAuthError(w, err)
 		return
 	}
-	response, err := s.nodes.Session(r.Context(), request)
+	response, err := s.nodes.Challenge(r.Context(), request)
 	if err != nil {
 		writeAgentAuthError(w, err)
 		return

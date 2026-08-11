@@ -34,7 +34,7 @@ func TestChallengeRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateKey: %v", err)
 	}
-	expiresAt := time.Date(2026, 8, 11, 12, 5, 0, 0, time.UTC)
+	expiresAt := time.Now().UTC().Add(5 * time.Minute)
 	signature := SignChallenge(privateKey, ProtocolVersion, "agt-test", "agent-nonce", "session", expiresAt)
 	if !VerifyChallenge(publicKey, signature, ProtocolVersion, "agt-test", "agent-nonce", "session", expiresAt) {
 		t.Fatal("VerifyChallenge rejected a valid challenge")

@@ -79,7 +79,7 @@ go run ./cmd/caroline-agent
 | `CAROLINE_HUB_URL` | — | Agent: Hub の URL |
 | `CAROLINE_ENROLLMENT_TOKEN` | — | Agent: 単回利用の登録 token |
 | `CAROLINE_HUB_PUBLIC_KEY` | — | Agent: base64 raw Ed25519 Hub 公開鍵。TOFU を使わない限り必須 |
-| `CAROLINE_AGENT_STATE_DIR` | `/var/lib/caroline-agent` | Agent identity と spool の保存先 |
+| `CAROLINE_AGENT_STATE_DIR` | `/var/lib/caroline-agent` | Agent identity、永続Hub pin（`hub.json`）、spool の保存先 |
 | `CAROLINE_AGENT_SPOOL_MAX_SIZE` | `1GiB` | Agent spool 上限。超過時は古い batch から削除 |
 | `CAROLINE_AGENT_SPOOL_MAX_AGE` | `24h` | Agent spool の最大保存期間 |
 | `CAROLINE_AGENT_TRUST_ON_FIRST_USE` | `false` | 初回 Hub key を自動 pin。通常は公開鍵を明示 |
@@ -98,7 +98,7 @@ curl -X POST http://localhost:8080/api/nodes \
   -d '{"ttlSeconds":900}'
 ```
 
-`GET /api/health` の `hubPublicKey` を base64 化し、`CAROLINE_HUB_URL`、`CAROLINE_ENROLLMENT_TOKEN`、`CAROLINE_HUB_PUBLIC_KEY` を Agent に設定します。登録後の通常通信は Agent の永続 Ed25519 key で署名されます。node management API は、信頼できるネットワークの外へ公開する前に reverse proxy 等のアクセス制御で保護してください。
+`GET /api/health` の `hubPublicKey` を base64 化し、`CAROLINE_HUB_URL`、`CAROLINE_ENROLLMENT_TOKEN`、`CAROLINE_HUB_PUBLIC_KEY` を Agent に設定します。Agentは登録後に署名済みHub challengeを検証し、通常通信を永続Ed25519 keyで署名します。TOFUを使う場合は検証済みHub keyを`hub.json`へ保存し、再起動後も同じkeyだけを受け入れます。node management API は、信頼できるネットワークの外へ公開する前に reverse proxy 等のアクセス制御で保護してください。
 
 ## UI の使い方
 

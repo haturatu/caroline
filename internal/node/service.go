@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"caroline/internal/agentproto"
@@ -27,14 +26,6 @@ type Service struct {
 	hubKeyID   string
 	hubPrivate ed25519.PrivateKey
 	hubPublic  ed25519.PublicKey
-
-	mu       sync.Mutex
-	sessions map[string]session
-}
-
-type session struct {
-	AgentID   string
-	ExpiresAt time.Time
 }
 
 func NewService(store Store, hubKeyID string, hubPrivate ed25519.PrivateKey) (*Service, error) {
@@ -46,7 +37,7 @@ func NewService(store Store, hubKeyID string, hubPrivate ed25519.PrivateKey) (*S
 	}
 	publicKey := make(ed25519.PublicKey, ed25519.PublicKeySize)
 	copy(publicKey, hubPrivate[ed25519.SeedSize:])
-	return &Service{store: store, hubKeyID: strings.TrimSpace(hubKeyID), hubPrivate: hubPrivate, hubPublic: publicKey, sessions: make(map[string]session)}, nil
+	return &Service{store: store, hubKeyID: strings.TrimSpace(hubKeyID), hubPrivate: hubPrivate, hubPublic: publicKey}, nil
 }
 
 func (s *Service) HubPublicKey() ed25519.PublicKey {
@@ -82,6 +73,14 @@ func (s *Service) Register(ctx context.Context, request agentproto.RegisterReque
 	if len(request.PublicKey) != ed25519.PublicKeySize {
 		return agentproto.RegisterResponse{}, Node{}, errors.New("agent public key is invalid")
 	}
+	agentID := "agt_" + publicKeyID(request.PublicKey)
+	existing, lookupErr := s.store.GetNode(ctx, agentID)
+	if lookupErr == nil && existing.Status == StatusRevoked {
+		return agentproto.RegisterResponse{}, Node{}, ErrNodeRevoked
+	}
+	if lookupErr != nil && !errors.Is(lookupErr, ErrNodeNotFound) {
+		return agentproto.RegisterResponse{}, Node{}, lookupErr
+	}
 	token := strings.TrimSpace(request.EnrollmentToken)
 	token = strings.TrimPrefix(token, "car_enroll_")
 	valid, err := s.store.ConsumeEnrollmentToken(ctx, tokenHash(token), time.Now().UTC())
@@ -91,7 +90,6 @@ func (s *Service) Register(ctx context.Context, request agentproto.RegisterReque
 	if !valid {
 		return agentproto.RegisterResponse{}, Node{}, ErrEnrollment
 	}
-	agentID := "agt_" + publicKeyID(request.PublicKey)
 	if request.AgentID != "" && request.AgentID != agentID {
 		return agentproto.RegisterResponse{}, Node{}, errors.New("agentId does not match public key")
 	}
@@ -106,49 +104,43 @@ func (s *Service) Register(ctx context.Context, request agentproto.RegisterReque
 	if err := s.store.SaveNode(ctx, nodeValue); err != nil {
 		return agentproto.RegisterResponse{}, Node{}, err
 	}
-	sessionID, err := agentproto.NewNonce()
+	challengeID, err := agentproto.NewNonce()
 	if err != nil {
 		return agentproto.RegisterResponse{}, Node{}, err
 	}
 	expiresAt := now.Add(5 * time.Minute)
-	s.mu.Lock()
-	s.sessions[sessionID] = session{AgentID: agentID, ExpiresAt: expiresAt}
-	s.mu.Unlock()
 	response := agentproto.RegisterResponse{
-		ProtocolVersion: agentproto.ProtocolVersion, AgentID: agentID, SessionID: sessionID,
+		ProtocolVersion: agentproto.ProtocolVersion, AgentID: agentID, ChallengeID: challengeID,
 		HubKeyID: s.hubKeyID, HubPublicKey: s.HubPublicKey(), Nonce: request.Nonce, ExpiresAt: expiresAt,
 		Capabilities: agentproto.NegotiateCapabilities(request.Capabilities),
-		Signature:    agentproto.SignChallenge(s.hubPrivate, agentproto.ProtocolVersion, agentID, request.Nonce, sessionID, expiresAt),
+		Signature:    agentproto.SignChallenge(s.hubPrivate, agentproto.ProtocolVersion, agentID, request.Nonce, challengeID, expiresAt),
 	}
 	return response, nodeValue, nil
 }
 
-func (s *Service) Session(ctx context.Context, request agentproto.SessionRequest) (agentproto.SessionResponse, error) {
+func (s *Service) Challenge(ctx context.Context, request agentproto.ChallengeRequest) (agentproto.ChallengeResponse, error) {
 	value, err := s.store.GetNode(ctx, request.AgentID)
 	if err != nil {
-		return agentproto.SessionResponse{}, ErrNodeNotFound
+		return agentproto.ChallengeResponse{}, ErrNodeNotFound
 	}
 	if value.Status == StatusRevoked {
-		return agentproto.SessionResponse{}, ErrNodeRevoked
+		return agentproto.ChallengeResponse{}, ErrNodeRevoked
 	}
 	if len(value.PublicKey) != ed25519.PublicKeySize {
-		return agentproto.SessionResponse{}, errors.New("registered agent public key is invalid")
+		return agentproto.ChallengeResponse{}, errors.New("registered agent public key is invalid")
 	}
 	now := time.Now().UTC()
-	sessionID, err := agentproto.NewNonce()
+	challengeID, err := agentproto.NewNonce()
 	if err != nil {
-		return agentproto.SessionResponse{}, err
+		return agentproto.ChallengeResponse{}, err
 	}
 	expiresAt := now.Add(5 * time.Minute)
-	s.mu.Lock()
-	s.sessions[sessionID] = session{AgentID: request.AgentID, ExpiresAt: expiresAt}
-	s.mu.Unlock()
-	return agentproto.SessionResponse{
-		ProtocolVersion: agentproto.ProtocolVersion, SessionID: sessionID,
+	return agentproto.ChallengeResponse{
+		ProtocolVersion: agentproto.ProtocolVersion, ChallengeID: challengeID,
 		HubKeyID: s.hubKeyID, HubPublicKey: s.HubPublicKey(), Nonce: request.Nonce,
 		ExpiresAt:    expiresAt,
 		Capabilities: append([]string(nil), agentproto.SupportedCapabilities...),
-		Signature:    agentproto.SignChallenge(s.hubPrivate, agentproto.ProtocolVersion, request.AgentID, request.Nonce, sessionID, expiresAt),
+		Signature:    agentproto.SignChallenge(s.hubPrivate, agentproto.ProtocolVersion, request.AgentID, request.Nonce, challengeID, expiresAt),
 	}, nil
 }
 
