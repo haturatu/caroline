@@ -53,6 +53,8 @@ func (s *Service) HubPublicKey() ed25519.PublicKey {
 	return append(ed25519.PublicKey(nil), s.hubPublic...)
 }
 
+func (s *Service) HubKeyID() string { return s.hubKeyID }
+
 func (s *Service) CreateEnrollmentToken(ctx context.Context, ttl time.Duration) (string, EnrollmentToken, error) {
 	if ttl <= 0 {
 		ttl = defaultEnrollmentTTL
@@ -115,7 +117,8 @@ func (s *Service) Register(ctx context.Context, request agentproto.RegisterReque
 	response := agentproto.RegisterResponse{
 		ProtocolVersion: agentproto.ProtocolVersion, AgentID: agentID, SessionID: sessionID,
 		HubKeyID: s.hubKeyID, HubPublicKey: s.HubPublicKey(), Nonce: request.Nonce, ExpiresAt: expiresAt,
-		Signature: agentproto.SignChallenge(s.hubPrivate, agentproto.ProtocolVersion, agentID, request.Nonce, sessionID, expiresAt),
+		Capabilities: agentproto.NegotiateCapabilities(request.Capabilities),
+		Signature:    agentproto.SignChallenge(s.hubPrivate, agentproto.ProtocolVersion, agentID, request.Nonce, sessionID, expiresAt),
 	}
 	return response, nodeValue, nil
 }
@@ -143,8 +146,9 @@ func (s *Service) Session(ctx context.Context, request agentproto.SessionRequest
 	return agentproto.SessionResponse{
 		ProtocolVersion: agentproto.ProtocolVersion, SessionID: sessionID,
 		HubKeyID: s.hubKeyID, HubPublicKey: s.HubPublicKey(), Nonce: request.Nonce,
-		ExpiresAt: expiresAt,
-		Signature: agentproto.SignChallenge(s.hubPrivate, agentproto.ProtocolVersion, request.AgentID, request.Nonce, sessionID, expiresAt),
+		ExpiresAt:    expiresAt,
+		Capabilities: append([]string(nil), agentproto.SupportedCapabilities...),
+		Signature:    agentproto.SignChallenge(s.hubPrivate, agentproto.ProtocolVersion, request.AgentID, request.Nonce, sessionID, expiresAt),
 	}, nil
 }
 
@@ -173,7 +177,17 @@ func (s *Service) Authenticate(ctx context.Context, agentID, method, path, times
 }
 
 func (s *Service) List(ctx context.Context) ([]Node, error) {
-	return s.store.ListNodes(ctx)
+	values, err := s.store.ListNodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cutoff := time.Now().UTC().Add(-45 * time.Second)
+	for index := range values {
+		if values[index].Status == StatusOnline && values[index].LastSeenAt.Before(cutoff) {
+			values[index].Status = StatusOffline
+		}
+	}
+	return values, nil
 }
 
 func (s *Service) Get(ctx context.Context, id string) (Node, error) {

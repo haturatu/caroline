@@ -40,6 +40,13 @@ import { setRenderActions } from "../features/explorer/actions";
 import { renderFilters } from "../features/filters/render";
 import { renderEntries } from "../features/logs/render";
 import { renderDetail } from "../features/logs/detail";
+import { createEnrollment, fetchNodes, revokeNode } from "../features/nodes/api";
+import {
+	renderEnrollmentToken,
+	renderNodes,
+	renderNodesError,
+	renderNodesLoading,
+} from "../features/nodes/render";
 import { state } from "./state";
 import type { AlertRule, Theme } from "../shared/types";
 
@@ -358,7 +365,7 @@ async function settleInitialLoading(): Promise<void> {
 async function loadStatus(): Promise<void> {
 	try {
 		const status = await fetchStatus();
-		if (status.connected) {
+		if (status.connected || status.mode === "hub") {
 			clearError("status");
 		} else {
 			showError(t("status.connectionError"), "status");
@@ -480,6 +487,7 @@ function scheduleSearch(value: string): void {
 function resetFilters(): void {
 	state.query = state.draftQuery = "";
 	state.searchText = "";
+	state.node = "";
 	state.container = "";
 	state.stream = "";
 	state.severity = "";
@@ -595,13 +603,21 @@ function setAlertDialogOpen(open: boolean, rule?: AlertRule): void {
 
 function renderAppView(): void {
 	const alertsView = state.view === "alerts";
-	$("#explorerView").toggleAttribute("hidden", alertsView);
+	const nodesView = state.view === "nodes";
+	$("#explorerView").toggleAttribute("hidden", alertsView || nodesView);
 	$("#alertsView").toggleAttribute("hidden", !alertsView);
-	document.title = alertsView ? `${t("alerts.pageTitle")} · ${t("app.name")}` : t("app.title");
-	setActiveNavigation(alertsView ? "alertsNavButton" : "logsNavButton");
+	$("#nodesView").toggleAttribute("hidden", !nodesView);
+	document.title = alertsView
+		? `${t("alerts.pageTitle")} · ${t("app.name")}`
+		: nodesView
+			? `${t("nodes.pageTitle")} · ${t("app.name")}`
+			: t("app.title");
+	setActiveNavigation(
+		alertsView ? "alertsNavButton" : nodesView ? "nodesNavButton" : "logsNavButton",
+	);
 }
 
-function setAppView(view: "explorer" | "alerts"): void {
+function setAppView(view: "explorer" | "alerts" | "nodes"): void {
 	if (state.view === view) {
 		closeMobileOverlay();
 		renderAppView();
@@ -614,8 +630,28 @@ function setAppView(view: "explorer" | "alerts"): void {
 	if (view === "alerts") {
 		void loadAlerts();
 		requestAnimationFrame(() => $("#alertsPageTitle").focus({ preventScroll: true }));
+	} else if (view === "nodes") {
+		void loadNodes();
+		requestAnimationFrame(() => $("#nodesPageTitle").focus({ preventScroll: true }));
 	} else {
 		requestAnimationFrame(() => $("#query-title").focus({ preventScroll: true }));
+	}
+}
+
+async function loadNodes(): Promise<void> {
+	state.nodes.loading = true;
+	renderNodesLoading();
+	try {
+		state.nodes.items = await fetchNodes();
+		state.nodes.error = "";
+		const nodeListCount = document.getElementById("nodeListCount");
+		if (nodeListCount) nodeListCount.textContent = String(state.nodes.items.length);
+		renderNodes();
+	} catch (error) {
+		state.nodes.error = errorText(error);
+		renderNodesError(state.nodes.error);
+	} finally {
+		state.nodes.loading = false;
 	}
 }
 
@@ -871,6 +907,7 @@ function setupEvents(): void {
 		setAppView("explorer"),
 	);
 	$("#alertsNavButton").addEventListener("click", () => setAppView("alerts"));
+	$("#nodesNavButton").addEventListener("click", () => setAppView("nodes"));
 	$("#timelineNavButton").addEventListener("click", () => {
 		setAppView("explorer");
 		requestAnimationFrame(() => focusSection("timeline"));
@@ -912,6 +949,13 @@ function setupEvents(): void {
 	});
 	$("#containerFilter").addEventListener("change", (event: Event) => {
 		state.container = (event.target as HTMLSelectElement).value;
+		state.pageToken = "";
+		syncURL();
+		void loadExplorer();
+	});
+	$("#nodeFilter").addEventListener("change", (event: Event) => {
+		state.node = (event.target as HTMLSelectElement).value;
+		state.container = "";
 		state.pageToken = "";
 		syncURL();
 		void loadExplorer();
@@ -994,6 +1038,36 @@ function setupEvents(): void {
 		setAlertDialogOpen(true),
 	);
 	$("#refreshAlertsButton").addEventListener("click", () => void loadAlerts());
+	$("#refreshNodesButton").addEventListener("click", () => void loadNodes());
+	$("#createEnrollmentButton").addEventListener("click", () => {
+		void createEnrollment()
+			.then((response) => {
+				renderEnrollmentToken(response.token, response.enrollment.expiresAt);
+				toast(t("nodes.tokenCreated"));
+			})
+			.catch((error) => toast(errorText(error)));
+	});
+	$("#copyEnrollmentButton").addEventListener("click", () => {
+		const token = $("#nodeEnrollmentToken").textContent || "";
+		void copyText(token).then((copied) =>
+			toast(copied ? t("common.linkCopied") : t("detail.copyFailed")),
+		);
+	});
+	$("#nodeList").addEventListener("click", (event: MouseEvent) => {
+		const button = (event.target as Element).closest<HTMLButtonElement>("[data-node-revoke]");
+		const id = button?.dataset.nodeRevoke;
+		if (!id || !window.confirm(t("nodes.revokeConfirm"))) return;
+		button.disabled = true;
+		void revokeNode(id)
+			.then(() => {
+				toast(t("nodes.revoked"));
+				return loadNodes();
+			})
+			.catch((error) => {
+				button.disabled = false;
+				toast(errorText(error));
+			});
+	});
 	$("#alertSearchInput").addEventListener("input", () => renderAlerts());
 	$("#alertStatusFilter").addEventListener("change", () => renderAlerts());
 	$("#closeAlertButton").addEventListener("click", () =>
@@ -1087,6 +1161,7 @@ function setupEvents(): void {
 		syncMobileFieldsOverlay();
 		void loadExplorer();
 		if (state.view === "alerts") void loadAlerts();
+		if (state.view === "nodes") void loadNodes();
 		setLive(state.live);
 	});
 	document.addEventListener("keydown", (event: KeyboardEvent) => {
@@ -1179,3 +1254,4 @@ setLive(state.live);
 void loadStatus();
 void loadExplorer();
 void loadAlerts();
+if (state.view === "nodes") void loadNodes();

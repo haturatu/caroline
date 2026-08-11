@@ -207,6 +207,33 @@ func (s *Service) searchStore(ctx context.Context, request SearchRequest) (Respo
 		response.Truncated = true
 	}
 	response.Total = len(response.Entries)
+	for index := range response.Containers {
+		response.Containers[index].LogCount = 0
+		response.Containers[index].ErrorCount = 0
+		response.Containers[index].WarningCount = 0
+	}
+	containerIndex := make(map[string]int, len(response.Containers))
+	for index, container := range response.Containers {
+		containerIndex[container.NodeID+"/"+container.ID] = index
+		containerIndex["/"+container.ID] = index
+	}
+	for _, entry := range response.Entries {
+		labels := entry.Resource.Labels
+		index, ok := containerIndex[labels["node_id"]+"/"+labels["container_id"]]
+		if !ok {
+			index, ok = containerIndex["/"+labels["container_id"]]
+		}
+		if !ok {
+			continue
+		}
+		response.Containers[index].LogCount++
+		switch entry.Severity {
+		case "ERROR":
+			response.Containers[index].ErrorCount++
+		case "WARNING":
+			response.Containers[index].WarningCount++
+		}
+	}
 	response.Timeline = BuildTimeline(response.Entries, request.From, request.To, request.TimelineBuckets)
 	response.Fields = BuildFieldGroups(response.Entries)
 	return paginateResponse(response, request), nil

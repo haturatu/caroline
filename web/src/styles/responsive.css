@@ -123,6 +123,21 @@
 		grid-template-columns: repeat(2, minmax(0, 1fr));
 	}
 
+	.node-enrollment-result {
+		grid-template-columns: 1fr;
+		gap: 10px;
+	}
+
+	.node-enrollment-result code {
+		max-inline-size: none;
+	}
+
+	.node-card {
+		align-items: flex-start;
+		flex-direction: column;
+		gap: 10px;
+	}
+
 	.alert-policy-card {
 		grid-template-columns: 1fr;
 		gap: 12px;

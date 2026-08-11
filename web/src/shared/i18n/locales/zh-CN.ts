@@ -18,6 +18,7 @@ export const zhCN = {
 		timeline: "时间线",
 		fields: "字段",
 	},
+	nodes: { ...en.nodes },
 	status: {
 		engine: "Docker Engine",
 		waitingForConnection: "等待连接",
@@ -71,6 +72,8 @@ export const zhCN = {
 		language: "语言",
 	},
 	filters: {
+		node: "节点",
+		allNodes: "所有节点",
 		container: "容器",
 		allContainers: "所有容器",
 		stream: "流",

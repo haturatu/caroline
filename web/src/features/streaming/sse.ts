@@ -7,6 +7,7 @@ export function buildTailURL(since: string): string {
 	const query = buildExplorerQuery();
 	if (query) params.set("q", query);
 	if (state.container) params.set("containers", state.container);
+	if (state.node) params.set("nodes", state.node);
 	if (state.stream) params.set("stream", state.stream);
 	if (state.severity) params.set("severity", state.severity);
 	return `/api/tail?${params.toString()}`;

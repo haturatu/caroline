@@ -18,6 +18,7 @@ export const zhTW = {
 		timeline: "時間軸",
 		fields: "欄位",
 	},
+	nodes: { ...en.nodes },
 	status: {
 		engine: "Docker Engine",
 		waitingForConnection: "等待連線",
@@ -71,6 +72,8 @@ export const zhTW = {
 		language: "語言",
 	},
 	filters: {
+		node: "節點",
+		allNodes: "所有節點",
 		container: "容器",
 		allContainers: "所有容器",
 		stream: "串流",
