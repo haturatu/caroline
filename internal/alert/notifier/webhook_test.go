@@ -84,20 +84,159 @@ func TestWebhookNotifyUsesDiscordPayload(t *testing.T) {
 	}
 }
 
-func TestIsDiscordWebhookURL(t *testing.T) {
+func TestWebhookNotifyUsesSlackPayload(t *testing.T) {
+	var request *http.Request
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		request = r
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Body:       io.NopCloser(strings.NewReader(`{}`)),
+			Header:     make(http.Header),
+			Request:    r,
+		}, nil
+	})}
+
+	err := (Webhook{Client: client}).Notify(context.Background(), alert.Rule{
+		WebhookURL: "https://hooks.slack.com/services/T000/B000/secret",
+	}, testNotification())
+	if err != nil {
+		t.Fatalf("Notify returned error: %v", err)
+	}
+	if request == nil {
+		t.Fatal("Slack request was not sent")
+	}
+	if got := request.Header.Get("Content-Type"); got != "application/json" {
+		t.Fatalf("Slack request Content-Type = %q", got)
+	}
+	var payload slackPayload
+	if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode Slack payload: %v", err)
+	}
+	if !strings.HasPrefix(payload.Text, "🔴 FIRING · API errors") {
+		t.Fatalf("unexpected Slack fallback text: %q", payload.Text)
+	}
+	if len(payload.Blocks) < 2 || payload.Blocks[0].Type != "header" || payload.Blocks[1].Type != "section" {
+		t.Fatalf("unexpected Slack blocks: %#v", payload.Blocks)
+	}
+	if payload.Blocks[0].Text == nil || payload.Blocks[0].Text.Text != "🔴 FIRING · API errors" {
+		t.Fatalf("unexpected Slack header: %#v", payload.Blocks[0])
+	}
+}
+
+func TestWebhookNotifyUsesNtfyPayload(t *testing.T) {
+	var request *http.Request
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		request = r
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Body:       io.NopCloser(strings.NewReader("")),
+			Header:     make(http.Header),
+			Request:    r,
+		}, nil
+	})}
+
+	notification := testNotification()
+	notification.Container = "api-1"
+	err := (Webhook{Client: client, ExplorerBaseURL: "https://caroline.example.test"}).Notify(context.Background(), alert.Rule{
+		WebhookURL: "https://ntfy.sh/caroline-alerts",
+	}, notification)
+	if err != nil {
+		t.Fatalf("Notify returned error: %v", err)
+	}
+	if request == nil {
+		t.Fatal("ntfy request was not sent")
+	}
+	if got := request.Header.Get("Content-Type"); got != "text/plain; charset=utf-8" {
+		t.Fatalf("ntfy request Content-Type = %q", got)
+	}
+	if got := request.Header.Get("Title"); got != "🔴 FIRING · API errors" {
+		t.Fatalf("ntfy request Title = %q", got)
+	}
+	if got := request.Header.Get("Priority"); got != "5" {
+		t.Fatalf("ntfy request Priority = %q", got)
+	}
+	if got := request.Header.Get("Tags"); got != "rotating_light" {
+		t.Fatalf("ntfy request Tags = %q", got)
+	}
+	if !strings.Contains(request.Header.Get("Click"), "q=severity%3E%3DERROR") {
+		t.Fatalf("ntfy request Click did not include Explorer URL: %q", request.Header.Get("Click"))
+	}
+	body, err := io.ReadAll(request.Body)
+	if err != nil {
+		t.Fatalf("read ntfy body: %v", err)
+	}
+	if !strings.Contains(string(body), "Container: api-1") || !strings.Contains(string(body), "Condition: 2 matches >= 1 / 1m") {
+		t.Fatalf("unexpected ntfy body: %q", body)
+	}
+}
+
+func TestWebhookNotifyUsesTeamsAdaptiveCard(t *testing.T) {
+	var request *http.Request
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		request = r
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Body:       io.NopCloser(strings.NewReader(`{}`)),
+			Header:     make(http.Header),
+			Request:    r,
+		}, nil
+	})}
+
+	err := (Webhook{Client: client, ExplorerBaseURL: "https://caroline.example.test"}).Notify(context.Background(), alert.Rule{
+		WebhookURL: "https://prod-00.japaneast.logic.azure.com/workflows/workflow-id/triggers/manual/paths/invoke?api-version=2016-10-01",
+		RunbookURL: "https://wiki.example.test/runbooks/api-errors",
+	}, testNotification())
+	if err != nil {
+		t.Fatalf("Notify returned error: %v", err)
+	}
+	if request == nil {
+		t.Fatal("Teams request was not sent")
+	}
+	if got := request.Header.Get("Content-Type"); got != "application/json" {
+		t.Fatalf("Teams request Content-Type = %q", got)
+	}
+	var payload teamsPayload
+	if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode Teams payload: %v", err)
+	}
+	if payload.Type != "message" || len(payload.Attachments) != 1 {
+		t.Fatalf("unexpected Teams payload envelope: %#v", payload)
+	}
+	attachment := payload.Attachments[0]
+	if attachment.ContentType != "application/vnd.microsoft.card.adaptive" || attachment.ContentURL != nil {
+		t.Fatalf("unexpected Teams attachment: %#v", attachment)
+	}
+	if attachment.Content.Type != "AdaptiveCard" || attachment.Content.Version != "1.2" {
+		t.Fatalf("unexpected Teams card: %#v", attachment.Content)
+	}
+	if len(attachment.Content.Body) < 2 || attachment.Content.Body[0].Text != "🔴 FIRING · API errors" || attachment.Content.Body[1].Type != "FactSet" {
+		t.Fatalf("unexpected Teams card body: %#v", attachment.Content.Body)
+	}
+	if len(attachment.Content.Actions) != 2 || attachment.Content.Actions[0].Type != "Action.OpenUrl" {
+		t.Fatalf("unexpected Teams card actions: %#v", attachment.Content.Actions)
+	}
+}
+
+func TestDetectWebhookProvider(t *testing.T) {
 	for _, test := range []struct {
-		name string
-		url  string
-		want bool
+		name     string
+		url      string
+		provider webhookProvider
 	}{
-		{name: "discord", url: "https://discord.com/api/webhooks/123/token", want: true},
-		{name: "legacy discord host", url: "https://discordapp.com/api/webhooks/123/token", want: true},
-		{name: "generic", url: "https://example.test/api/webhooks/123/token", want: false},
-		{name: "insecure", url: "http://discord.com/api/webhooks/123/token", want: false},
+		{name: "discord", url: "https://discord.com/api/webhooks/123/token", provider: providerDiscord},
+		{name: "slack", url: "https://hooks.slack.com/services/T000/B000/token", provider: providerSlack},
+		{name: "ntfy", url: "https://ntfy.sh/caroline-alerts", provider: providerNtfy},
+		{name: "teams legacy", url: "https://prod-00.japaneast.logic.azure.com/workflows/id/triggers/manual/paths/invoke", provider: providerTeams},
+		{name: "teams power platform", url: "https://environment.api.powerplatform.com:443/powerautomate/automations/direct/id/triggers/manual/paths/invoke", provider: providerTeams},
+		{name: "generic", url: "https://alerts.example.test/caroline", provider: providerGeneric},
+		{name: "insecure discord", url: "http://discord.com/api/webhooks/123/token", provider: providerGeneric},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if got := isDiscordWebhookURL(test.url); got != test.want {
-				t.Fatalf("isDiscordWebhookURL(%q) = %t, want %t", test.url, got, test.want)
+			if got := detectWebhookProvider(test.url); got != test.provider {
+				t.Fatalf("detectWebhookProvider(%q) = %q, want %q", test.url, got, test.provider)
 			}
 		})
 	}
