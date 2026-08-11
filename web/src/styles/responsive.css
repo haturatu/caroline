@@ -119,6 +119,26 @@
 		grid-template-columns: 1fr;
 	}
 
+	.alert-summary-grid {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+
+	.alert-policy-card {
+		grid-template-columns: 1fr;
+		gap: 12px;
+	}
+
+	.alert-policy-meta {
+		align-items: start;
+		justify-items: start;
+		text-align: start;
+	}
+
+	.alert-policy-notification,
+	.alert-policy-actions {
+		justify-content: flex-start;
+	}
+
 	.results-header {
 		align-items: flex-start;
 		flex-direction: column;
@@ -132,6 +152,15 @@
 	.search-all-fields {
 		inline-size: 100%;
 		min-block-size: 44px;
+	}
+
+	.alert-list-toolbar {
+		align-items: stretch;
+		flex-direction: column;
+	}
+
+	.alert-status-filter {
+		min-inline-size: 0;
 	}
 
 	.text-button,
