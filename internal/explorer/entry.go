@@ -28,15 +28,21 @@ func ContainerName(container docker.Container) string {
 }
 
 func ToContainerInfo(container docker.Container) ContainerInfo {
+	return ToContainerInfoForNode(container, "", "")
+}
+
+func ToContainerInfoForNode(container docker.Container, nodeID, nodeName string) ContainerInfo {
 	created := time.Unix(container.Created, 0).UTC()
 	return ContainerInfo{
-		ID:      container.ID,
-		Name:    ContainerName(container),
-		Image:   container.Image,
-		State:   container.State,
-		Status:  container.Status,
-		Created: created,
-		Labels:  container.Labels,
+		ID:       container.ID,
+		Name:     ContainerName(container),
+		NodeID:   nodeID,
+		NodeName: nodeName,
+		Image:    container.Image,
+		State:    container.State,
+		Status:   container.Status,
+		Created:  created,
+		Labels:   container.Labels,
 	}
 }
 
@@ -100,6 +106,10 @@ func DetectSeverity(message string) string {
 }
 
 func ToEntry(line LogLine, container docker.Container) Entry {
+	return ToEntryForNode(line, container, "", "")
+}
+
+func ToEntryForNode(line LogLine, container docker.Container, nodeID, nodeName string) Entry {
 	textPayload := line.Message
 	var jsonPayload map[string]any
 	var decoded map[string]any
@@ -116,18 +126,25 @@ func ToEntry(line LogLine, container docker.Container) Entry {
 		"container_name": ContainerName(container),
 		"stream":         line.Stream,
 	}
+	resourceLabels := map[string]string{
+		"container_name": ContainerName(container),
+		"container_id":   container.ID,
+		"image":          container.Image,
+	}
+	if nodeID != "" {
+		resourceLabels["node_id"] = nodeID
+	}
+	if nodeName != "" {
+		resourceLabels["node_name"] = nodeName
+	}
 	return Entry{
 		InsertID:  line.ID,
 		Timestamp: line.Timestamp,
 		Severity:  line.Severity,
 		LogName:   fmt.Sprintf("containers/%s/%s", ContainerName(container), line.Stream),
 		Resource: Resource{
-			Type: "docker_container",
-			Labels: map[string]string{
-				"container_name": ContainerName(container),
-				"container_id":   container.ID,
-				"image":          container.Image,
-			},
+			Type:   "docker_container",
+			Labels: resourceLabels,
 		},
 		Labels:      labels,
 		TextPayload: textPayload,

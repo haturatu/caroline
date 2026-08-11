@@ -17,6 +17,9 @@ type fetchedEntries struct {
 }
 
 func (s *Service) Search(ctx context.Context, request SearchRequest) (Response, error) {
+	if s.store != nil {
+		return s.searchStore(ctx, request)
+	}
 	containers, err := s.docker.ListRunning(ctx)
 	if err != nil {
 		return Response{}, err
@@ -163,6 +166,81 @@ func (s *Service) Search(ctx context.Context, request SearchRequest) (Response, 
 		response.NextPageToken = EncodeCursor(page[len(page)-1])
 	}
 	return response, nil
+}
+
+func (s *Service) searchStore(ctx context.Context, request SearchRequest) (Response, error) {
+	entries, err := s.store.SearchEntries(ctx, request)
+	if err != nil {
+		return Response{}, err
+	}
+	containers, err := s.store.ListContainers(ctx)
+	if err != nil {
+		return Response{}, err
+	}
+	response := Response{
+		Entries:     make([]Entry, 0, len(entries)),
+		Containers:  containers,
+		GeneratedAt: time.Now().UTC(),
+		From:        request.From,
+		To:          request.To,
+		Duration:    request.Duration,
+		Query:       request.Query,
+		Approximate: false,
+		LogTail:     MaxLogTail,
+		EntryLimit:  MaxEntries,
+	}
+	for _, entry := range entries {
+		if !MatchesFilters(entry, request.Query, request.Severity, request.Stream) {
+			continue
+		}
+		if len(request.Selected) > 0 && !request.Selected[entry.Resource.Labels["container_id"]] {
+			continue
+		}
+		if len(request.SelectedNodes) > 0 && !request.SelectedNodes[entry.Resource.Labels["node_id"]] {
+			continue
+		}
+		response.Entries = append(response.Entries, entry)
+	}
+	sortEntries(response.Entries, request.Sort)
+	if len(response.Entries) > MaxEntries {
+		response.Entries = response.Entries[:MaxEntries]
+		response.Truncated = true
+	}
+	response.Total = len(response.Entries)
+	response.Timeline = BuildTimeline(response.Entries, request.From, request.To, request.TimelineBuckets)
+	response.Fields = BuildFieldGroups(response.Entries)
+	return paginateResponse(response, request), nil
+}
+
+func paginateResponse(response Response, request SearchRequest) Response {
+	start := 0
+	if request.Cursor != nil {
+		start = len(response.Entries)
+		for index, entry := range response.Entries {
+			if IsAfterCursor(entry, *request.Cursor, request.Sort) {
+				start = index
+				break
+			}
+		}
+	}
+	if start >= len(response.Entries) {
+		response.Entries = []Entry{}
+		return response
+	}
+	limit := request.Limit
+	if limit < 1 {
+		limit = 100
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+	end := min(start+limit, len(response.Entries))
+	page := response.Entries[start:end]
+	response.Entries = page
+	if end < response.Total && len(page) > 0 {
+		response.NextPageToken = EncodeCursor(page[len(page)-1])
+	}
+	return response
 }
 
 func MatchesFilters(entry Entry, query, severity, stream string) bool {

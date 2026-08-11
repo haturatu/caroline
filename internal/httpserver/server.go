@@ -9,7 +9,9 @@ import (
 	"caroline/internal/alert"
 	"caroline/internal/docker"
 	"caroline/internal/explorer"
+	"caroline/internal/ingest"
 	"caroline/internal/logstream"
+	"caroline/internal/node"
 )
 
 const defaultPort = "8080"
@@ -19,6 +21,17 @@ type Server struct {
 	explorer *explorer.Service
 	streams  *logstream.Manager
 	alerts   *alert.Engine
+	store    explorer.LogStore
+	nodes    *node.Service
+	ingest   *ingest.Service
+	broker   *logstream.Broker
+}
+
+func (s *Server) ConfigureHub(store explorer.LogStore, nodes *node.Service, ingestService *ingest.Service, broker *logstream.Broker) {
+	s.store = store
+	s.nodes = nodes
+	s.ingest = ingestService
+	s.broker = broker
 }
 
 func New(
@@ -43,6 +56,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/tail", getOnly(s.handleTail))
 	mux.HandleFunc("/api/alerts", s.handleAlerts)
 	mux.HandleFunc("/api/alerts/", s.handleAlert)
+	mux.HandleFunc("/api/v1/agent/register", postOnly(s.handleAgentRegister))
+	mux.HandleFunc("/api/v1/agent/session", postOnly(s.handleAgentSession))
+	mux.HandleFunc("/api/v1/agent/logs", postOnly(s.handleAgentLogs))
+	mux.HandleFunc("/api/v1/agent/heartbeat", postOnly(s.handleAgentHeartbeat))
+	mux.HandleFunc("/api/v1/agent/events", getOnly(s.handleAgentEvents))
+	mux.HandleFunc("/api/nodes", s.handleNodes)
+	mux.HandleFunc("/api/nodes/", s.handleNode)
 	mux.Handle("/", http.FileServer(http.Dir("static")))
 	return securityHeaders(loggingMiddleware(mux))
 }

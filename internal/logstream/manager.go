@@ -35,6 +35,7 @@ type Subscription struct {
 	StreamedContainers int
 
 	manager *Manager
+	broker  *Broker
 	owner   *subscriber
 	once    sync.Once
 }
@@ -44,12 +45,18 @@ func (s *Subscription) Close() {
 		return
 	}
 	s.once.Do(func() {
-		s.manager.closeSubscription(s.owner)
+		if s.manager != nil {
+			s.manager.closeSubscription(s.owner)
+		}
+		if s.broker != nil {
+			s.broker.closeSubscription(s.owner)
+		}
 	})
 }
 
 type Manager struct {
 	source Source
+	broker *Broker
 
 	rootContext context.Context
 	rootCancel  context.CancelFunc
@@ -60,13 +67,14 @@ type Manager struct {
 }
 
 type subscriber struct {
-	manager  *Manager
-	selected map[string]bool
-	since    time.Time
-	done     chan struct{}
-	entries  chan explorer.Entry
-	errors   chan StreamError
-	once     sync.Once
+	manager       *Manager
+	selected      map[string]bool
+	selectedNodes map[string]bool
+	since         time.Time
+	done          chan struct{}
+	entries       chan explorer.Entry
+	errors        chan StreamError
+	once          sync.Once
 }
 
 type stream struct {
@@ -95,7 +103,21 @@ func NewManager(source Source) *Manager {
 	}
 }
 
+func NewBrokerManager(broker *Broker) *Manager {
+	context, cancel := context.WithCancel(context.Background())
+	return &Manager{
+		broker:      broker,
+		rootContext: context,
+		rootCancel:  cancel,
+	}
+}
+
 func (m *Manager) Close() {
+	if m.broker != nil {
+		m.rootCancel()
+		m.broker.Close()
+		return
+	}
 	m.rootCancel()
 	m.mu.Lock()
 	owners := make([]*subscriber, 0, len(m.subscribers))
@@ -124,6 +146,9 @@ func (m *Manager) Subscribe(
 	since time.Time,
 	maxContainers int,
 ) (*Subscription, error) {
+	if m.broker != nil {
+		return m.broker.Subscribe(ctx, selected, nil, since), nil
+	}
 	containers, err := m.listRunning(ctx)
 	if err != nil {
 		return nil, err
@@ -191,6 +216,9 @@ func (m *Manager) Subscribe(
 }
 
 func (m *Manager) Refresh(ctx context.Context) error {
+	if m.broker != nil {
+		return nil
+	}
 	containers, err := m.listRunning(ctx)
 	if err != nil {
 		return err

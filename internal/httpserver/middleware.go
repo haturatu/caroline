@@ -76,6 +76,10 @@ func getOnly(handler http.HandlerFunc) http.HandlerFunc {
 	return allowMethods(handler, http.MethodGet, http.MethodHead)
 }
 
+func postOnly(handler http.HandlerFunc) http.HandlerFunc {
+	return allowMethods(handler, http.MethodPost)
+}
+
 func allowMethods(handler http.HandlerFunc, allowed ...string) http.HandlerFunc {
 	allowedSet := make(map[string]struct{}, len(allowed))
 	for _, method := range allowed {
