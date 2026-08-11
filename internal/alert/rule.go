@@ -53,6 +53,23 @@ type RuleSpec struct {
 	WebhookURL      string            `json:"webhookUrl"`
 }
 
+// RulePatchSpec contains only the fields that should change during a PATCH.
+// Pointer fields let the HTTP layer distinguish an omitted value from an
+// intentional zero value such as enabled=false or an empty webhook URL.
+type RulePatchSpec struct {
+	Name            *string            `json:"name"`
+	Query           *string            `json:"query"`
+	Severity        *string            `json:"severity"`
+	Labels          *map[string]string `json:"labels"`
+	RunbookURL      *string            `json:"runbookUrl"`
+	SampleMode      *string            `json:"sampleMode"`
+	Threshold       *int               `json:"threshold"`
+	WindowSeconds   *int               `json:"windowSeconds"`
+	CooldownSeconds *int               `json:"cooldownSeconds"`
+	Enabled         *bool              `json:"enabled"`
+	WebhookURL      *string            `json:"webhookUrl"`
+}
+
 type RuleState struct {
 	Status                 string      `json:"status"`
 	Matches                []time.Time `json:"matches"`
