@@ -133,6 +133,87 @@ func (e *Engine) Update(id string, spec RuleSpec) (RuleView, error) {
 	return view, nil
 }
 
+// Patch updates selected fields while retaining the rest of the rule. This
+// is especially important for webhook URLs, which are intentionally omitted
+// from RuleView responses and therefore cannot be round-tripped by clients.
+func (e *Engine) Patch(id string, patch RulePatchSpec) (RuleView, error) {
+	e.mu.Lock()
+	previousRule, ok := e.rules[id]
+	if !ok {
+		e.mu.Unlock()
+		return RuleView{}, fmt.Errorf("%w: %q", ErrRuleNotFound, id)
+	}
+	spec := RuleSpec{
+		Name:            previousRule.Name,
+		Query:           previousRule.Query,
+		Severity:        previousRule.Severity,
+		Labels:          cloneLabels(previousRule.Labels),
+		RunbookURL:      previousRule.RunbookURL,
+		SampleMode:      previousRule.SampleMode,
+		Threshold:       previousRule.Threshold,
+		WindowSeconds:   previousRule.WindowSeconds,
+		CooldownSeconds: previousRule.CooldownSeconds,
+		Enabled:         boolPointer(previousRule.Enabled),
+		WebhookURL:      previousRule.WebhookURL,
+	}
+	if patch.Name != nil {
+		spec.Name = *patch.Name
+	}
+	if patch.Query != nil {
+		spec.Query = *patch.Query
+	}
+	if patch.Severity != nil {
+		spec.Severity = *patch.Severity
+	}
+	if patch.Labels != nil {
+		spec.Labels = cloneLabels(*patch.Labels)
+	}
+	if patch.RunbookURL != nil {
+		spec.RunbookURL = *patch.RunbookURL
+	}
+	if patch.SampleMode != nil {
+		spec.SampleMode = *patch.SampleMode
+	}
+	if patch.Threshold != nil {
+		spec.Threshold = *patch.Threshold
+	}
+	if patch.WindowSeconds != nil {
+		spec.WindowSeconds = *patch.WindowSeconds
+	}
+	if patch.CooldownSeconds != nil {
+		spec.CooldownSeconds = *patch.CooldownSeconds
+	}
+	if patch.Enabled != nil {
+		spec.Enabled = patch.Enabled
+	}
+	if patch.WebhookURL != nil {
+		spec.WebhookURL = *patch.WebhookURL
+	}
+	rule, err := normalizeSpec(spec)
+	if err != nil {
+		e.mu.Unlock()
+		return RuleView{}, err
+	}
+	now := time.Now().UTC()
+	previousState := e.states[id]
+	rule.ID = id
+	e.rules[id] = rule
+	e.states[id] = RuleState{Status: StatusOK, UpdatedAt: now}
+	view := rule.view(e.states[id], now)
+	if err := e.saveLocked(); err != nil {
+		e.rules[id] = previousRule
+		e.states[id] = previousState
+		e.mu.Unlock()
+		return RuleView{}, fmt.Errorf("%w: %v", ErrPersistence, err)
+	}
+	e.mu.Unlock()
+	return view, nil
+}
+
+func boolPointer(value bool) *bool {
+	return &value
+}
+
 func (e *Engine) Delete(id string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()

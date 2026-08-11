@@ -119,8 +119,6 @@ const bindings: Binding[] = [
 	{ selector: "#timelineNavButton", key: "nav.timeline", attribute: "title" },
 	{ selector: "#fieldsNavButton span", key: "nav.fields" },
 	{ selector: "#fieldsNavButton", key: "nav.fields", attribute: "title" },
-	{ selector: "#sideEngineStatus", key: "status.engine" },
-	{ selector: "#sideEngineVersion", key: "status.waitingForConnection" },
 	{ selector: ".page-heading h1", key: "nav.logsExplorer" },
 	{ selector: ".page-heading p", key: "app.searchDescription" },
 	{ selector: "#shareButton", key: "common.shareLink" },
@@ -262,7 +260,6 @@ const bindings: Binding[] = [
 	{ selector: ".detail-drawer .section-kicker", key: "detail.kicker" },
 	{ selector: "#detailTitle", key: "detail.entryDetails" },
 	{ selector: ".page-footer > span:first-child", key: "app.carolineForDocker" },
-	{ selector: "#localDataLabel", key: "footer.dataLocal" },
 ];
 
 function setBinding(binding: Binding): void {
