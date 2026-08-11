@@ -19,6 +19,14 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	if s.docker == nil {
+		writeJSON(w, http.StatusOK, statusResponse{
+			Connected: false,
+			CheckedAt: time.Now().UTC(),
+			Message:   "Caroline Hub is using the agent ingestion pipeline",
+		})
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	version, err := s.docker.Check(ctx)
