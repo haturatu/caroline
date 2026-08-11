@@ -15,8 +15,10 @@ const (
 )
 
 type Node struct {
-	ID              string    `json:"id"`
-	Name            string    `json:"name"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Fingerprint is inventory metadata for identifying a host. Authentication
+	// is provided by the Agent public key and signed requests, not by this value.
 	Fingerprint     string    `json:"fingerprint"`
 	PublicKey       []byte    `json:"publicKey,omitempty"`
 	Hostname        string    `json:"hostname"`

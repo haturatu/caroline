@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -112,5 +113,56 @@ func TestStoreCleanupRemovesOldEntriesAndPayloadOverBudget(t *testing.T) {
 	remaining, err := store.SearchEntries(context.Background(), explorer.SearchRequest{From: base.Add(-time.Hour), To: base.Add(time.Hour)})
 	if err != nil || len(remaining) != 1 || remaining[0].InsertID != "new-2" {
 		t.Fatalf("unexpected remaining entries: %#v err=%v", remaining, err)
+	}
+}
+
+func TestSearchEntriesAppliesIndexedFiltersAcrossChunks(t *testing.T) {
+	store, err := OpenMemory()
+	if err != nil {
+		t.Fatalf("OpenMemory: %v", err)
+	}
+	defer store.Close()
+
+	base := time.Date(2026, 8, 11, 12, 0, 0, 0, time.UTC)
+	entries := make([]explorer.Entry, 0, 1001)
+	entries = append(entries, explorer.Entry{
+		InsertID: "target", Timestamp: base, Severity: "ERROR", Stream: "stderr", TextPayload: "target",
+		Resource: explorer.Resource{Labels: map[string]string{"node_id": "node-a", "node_name": "server-a", "container_id": "target-container", "container_name": "api"}},
+	})
+	for index := 0; index < 1000; index++ {
+		entries = append(entries, explorer.Entry{
+			InsertID: fmt.Sprintf("distractor-%04d", index), Timestamp: base.Add(time.Duration(index+1) * time.Second), Severity: "INFO", Stream: "stdout",
+			Resource: explorer.Resource{Labels: map[string]string{"node_id": "node-b", "node_name": "server-b", "container_id": "other-container", "container_name": "worker"}},
+		})
+	}
+	for start := 0; start < len(entries); start += 500 {
+		end := min(start+500, len(entries))
+		accepted, writeErr := store.WriteBatch(context.Background(), explorer.EntryBatch{
+			AgentID: "agent-1", BootID: "boot-search", Sequence: uint64(start/500 + 1), Entries: entries[start:end],
+		})
+		if writeErr != nil || !accepted {
+			t.Fatalf("WriteBatch(%d) accepted=%v err=%v", start, accepted, writeErr)
+		}
+	}
+
+	request := explorer.SearchRequest{
+		From: base.Add(-time.Minute), To: base.Add(30 * time.Minute), Severity: "ERROR", Stream: "stderr",
+		SelectedNodes: map[string]bool{"server-a": true}, Sort: "desc",
+	}
+	entries, err = store.SearchEntries(context.Background(), request)
+	if err != nil {
+		t.Fatalf("SearchEntries: %v", err)
+	}
+	if len(entries) != 1 || entries[0].InsertID != "target" {
+		t.Fatalf("filtered entries = %#v, want target only", entries)
+	}
+	response, err := explorer.NewStoreService(store).Search(context.Background(), explorer.SearchRequest{
+		From: base.Add(-time.Minute), To: base.Add(30 * time.Minute), Query: "target", Sort: "desc", Limit: 100,
+	})
+	if err != nil {
+		t.Fatalf("store Search: %v", err)
+	}
+	if response.Total != 1 || len(response.Entries) != 1 || response.Entries[0].InsertID != "target" {
+		t.Fatalf("query response = %#v, want target only", response)
 	}
 }

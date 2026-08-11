@@ -57,7 +57,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/alerts", s.handleAlerts)
 	mux.HandleFunc("/api/alerts/", s.handleAlert)
 	mux.HandleFunc("/api/v1/agent/register", postOnly(s.handleAgentRegister))
-	mux.HandleFunc("/api/v1/agent/session", postOnly(s.handleAgentSession))
+	mux.HandleFunc("/api/v1/agent/challenge", postOnly(s.handleAgentChallenge))
 	mux.HandleFunc("/api/v1/agent/logs", postOnly(s.handleAgentLogs))
 	mux.HandleFunc("/api/v1/agent/heartbeat", postOnly(s.handleAgentHeartbeat))
 	mux.HandleFunc("/api/v1/agent/events", getOnly(s.handleAgentEvents))

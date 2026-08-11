@@ -61,16 +61,16 @@ func VerifyRequest(publicKey ed25519.PublicKey, method, path, timestamp, nonce s
 	return nil
 }
 
-func ChallengePayload(protocolVersion int, agentID, agentNonce, sessionID string, expiresAt time.Time) string {
-	return fmt.Sprintf("%d\n%s\n%s\n%s\n%s", protocolVersion, agentID, agentNonce, sessionID, expiresAt.UTC().Format(time.RFC3339Nano))
+func ChallengePayload(protocolVersion int, agentID, agentNonce, challengeID string, expiresAt time.Time) string {
+	return fmt.Sprintf("%d\n%s\n%s\n%s\n%s", protocolVersion, agentID, agentNonce, challengeID, expiresAt.UTC().Format(time.RFC3339Nano))
 }
 
-func SignChallenge(privateKey ed25519.PrivateKey, protocolVersion int, agentID, agentNonce, sessionID string, expiresAt time.Time) []byte {
-	return ed25519.Sign(privateKey, []byte(ChallengePayload(protocolVersion, agentID, agentNonce, sessionID, expiresAt)))
+func SignChallenge(privateKey ed25519.PrivateKey, protocolVersion int, agentID, agentNonce, challengeID string, expiresAt time.Time) []byte {
+	return ed25519.Sign(privateKey, []byte(ChallengePayload(protocolVersion, agentID, agentNonce, challengeID, expiresAt)))
 }
 
-func VerifyChallenge(publicKey ed25519.PublicKey, signature []byte, protocolVersion int, agentID, agentNonce, sessionID string, expiresAt time.Time) bool {
-	return ed25519.Verify(publicKey, []byte(ChallengePayload(protocolVersion, agentID, agentNonce, sessionID, expiresAt)), signature)
+func VerifyChallenge(publicKey ed25519.PublicKey, signature []byte, protocolVersion int, agentID, agentNonce, challengeID string, expiresAt time.Time) bool {
+	return ed25519.Verify(publicKey, []byte(ChallengePayload(protocolVersion, agentID, agentNonce, challengeID, expiresAt)), signature)
 }
 
 func ApplyRequestHeaders(request *http.Request, privateKey ed25519.PrivateKey, body []byte, now time.Time) error {

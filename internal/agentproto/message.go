@@ -21,27 +21,28 @@ type RegisterRequest struct {
 }
 
 type RegisterResponse struct {
-	ProtocolVersion int       `json:"protocolVersion"`
-	AgentID         string    `json:"agentId"`
-	SessionID       string    `json:"sessionId"`
-	HubKeyID        string    `json:"hubKeyId"`
-	HubPublicKey    []byte    `json:"hubPublicKey"`
-	Nonce           string    `json:"nonce"`
-	ExpiresAt       time.Time `json:"expiresAt"`
-	Signature       []byte    `json:"signature"`
-	Capabilities    []string  `json:"capabilities,omitempty"`
-}
-
-type SessionRequest struct {
 	ProtocolVersion int    `json:"protocolVersion"`
 	AgentID         string `json:"agentId"`
-	SessionID       string `json:"sessionId"`
+	// ChallengeID identifies the Hub identity challenge. It is not an access
+	// credential; normal requests use Ed25519 signatures.
+	ChallengeID  string    `json:"challengeId"`
+	HubKeyID     string    `json:"hubKeyId"`
+	HubPublicKey []byte    `json:"hubPublicKey"`
+	Nonce        string    `json:"nonce"`
+	ExpiresAt    time.Time `json:"expiresAt"`
+	Signature    []byte    `json:"signature"`
+	Capabilities []string  `json:"capabilities,omitempty"`
+}
+
+type ChallengeRequest struct {
+	ProtocolVersion int    `json:"protocolVersion"`
+	AgentID         string `json:"agentId"`
 	Nonce           string `json:"nonce"`
 }
 
-type SessionResponse struct {
+type ChallengeResponse struct {
 	ProtocolVersion int       `json:"protocolVersion"`
-	SessionID       string    `json:"sessionId"`
+	ChallengeID     string    `json:"challengeId"`
 	HubKeyID        string    `json:"hubKeyId"`
 	HubPublicKey    []byte    `json:"hubPublicKey"`
 	Nonce           string    `json:"nonce"`
