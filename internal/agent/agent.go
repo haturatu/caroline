@@ -15,6 +15,7 @@ import (
 type Agent struct {
 	config    Config
 	identity  Identity
+	bootID    string
 	sender    *Sender
 	spool     *Spool
 	startedAt time.Time
@@ -23,12 +24,19 @@ type Agent struct {
 }
 
 func New(config Config, identity Identity) (*Agent, error) {
-	sender := NewSender(config, identity)
+	bootID, err := agentproto.NewNonce()
+	if err != nil {
+		return nil, fmt.Errorf("create agent boot id: %w", err)
+	}
+	sender, err := NewSender(config, identity, bootID)
+	if err != nil {
+		return nil, err
+	}
 	spool, err := OpenSpool(config.SpoolDir(), config.SpoolMaxBytes, config.SpoolMaxAge)
 	if err != nil {
 		return nil, err
 	}
-	return &Agent{config: config, identity: identity, sender: sender, spool: spool, startedAt: time.Now().UTC()}, nil
+	return &Agent{config: config, identity: identity, bootID: bootID, sender: sender, spool: spool, startedAt: time.Now().UTC()}, nil
 }
 
 func (a *Agent) Run(ctx context.Context) error {
@@ -61,7 +69,7 @@ func (a *Agent) runCollection(ctx context.Context, manager *logstream.Manager, s
 		return err
 	}
 	defer subscription.Close()
-	queue := NewBatchQueue(a.identity.AgentID, a.identity.BootID, a.config.MaxBatchEntries, a.config.MaxBatchBytes, a.config.QueueCapacity, a.config.FlushInterval, a.sequence)
+	queue := NewBatchQueue(a.identity.AgentID, a.bootID, a.config.MaxBatchEntries, a.config.MaxBatchBytes, a.config.QueueCapacity, a.config.FlushInterval, a.sequence)
 	defer func() { a.sequence = queue.Sequence() }()
 	if err := a.refreshContainers(ctx, source, queue); err != nil {
 		log.Printf("agent container discovery failed: %v", err)
@@ -82,7 +90,7 @@ func (a *Agent) runCollection(ctx context.Context, manager *logstream.Manager, s
 				return nil
 			}
 			a.entryID++
-			entry.InsertID = fmt.Sprintf("%s/%s/%020d", a.identity.AgentID, a.identity.BootID, a.entryID)
+			entry.InsertID = fmt.Sprintf("%s/%s/%020d", a.identity.AgentID, a.bootID, a.entryID)
 			if err := queue.Add(entry); err != nil {
 				if batch, ok := queue.Flush(); ok {
 					if spoolErr := a.spool.Write(batch); spoolErr != nil {
@@ -182,7 +190,7 @@ func (a *Agent) sendHeartbeat(ctx context.Context, source *docker.Client, queue 
 		return err
 	}
 	return a.sender.Heartbeat(ctx, agentproto.Heartbeat{
-		ProtocolVersion: agentproto.ProtocolVersion, AgentID: a.identity.AgentID, BootID: a.identity.BootID,
+		ProtocolVersion: agentproto.ProtocolVersion, AgentID: a.identity.AgentID, BootID: a.bootID,
 		AgentTime: time.Now().UTC(), UptimeSeconds: int64(time.Since(a.startedAt).Seconds()),
 		Containers: len(containers), QueueDepth: queue.Len(), SpoolBytes: spoolBytes,
 	})

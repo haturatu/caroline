@@ -74,6 +74,7 @@ func ConfigFromEnv() (Config, error) {
 
 func (c Config) IdentityPath() string { return filepath.Join(c.StateDir, "identity.json") }
 func (c Config) SpoolDir() string     { return filepath.Join(c.StateDir, "spool") }
+func (c Config) HubPinPath() string   { return filepath.Join(c.StateDir, "hub.json") }
 
 func firstEnv(key, fallback string) string {
 	if value := strings.TrimSpace(os.Getenv(key)); value != "" {

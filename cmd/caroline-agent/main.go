@@ -8,7 +8,6 @@ import (
 	"syscall"
 
 	"caroline/internal/agent"
-	"caroline/internal/agentproto"
 )
 
 func main() {
@@ -19,9 +18,6 @@ func main() {
 	identity, err := agent.LoadOrCreateIdentity(config.IdentityPath())
 	if err != nil {
 		log.Fatalf("load agent identity: %v", err)
-	}
-	if identity.BootID, err = agentproto.NewNonce(); err != nil {
-		log.Fatalf("create agent boot id: %v", err)
 	}
 	runner, err := agent.New(config, identity)
 	if err != nil {
