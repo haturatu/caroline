@@ -91,6 +91,8 @@ Streaming を停止すると SSE 接続を閉じます。フィルター、時�
 
 現在のクエリから、しきい値、時間枠、クールダウン、severity、labels、任意の Runbook URL、サンプルの秘匿化モードを指定してアラートを作成できます。UI上の入力項目は `Runbook URL` と `Webhook URL` の2つだけで、Webhook URLのHTTPSホストとパスから送信先を自動判定します。Discord（`discord.com/api/webhooks/...`）、Slack Incoming Webhook（`hooks.slack.com/services/...`）、ntfy topic（`ntfy.sh/<topic>`）、Microsoft Teams Workflow（`*.logic.azure.com/.../paths/invoke` または `*.api.powerplatform.com/powerautomate/...`）に対応し、それ以外のURLには汎用JSON payloadを送信します。公開 URL を `CAROLINE_URL` に設定すると、通知に時間範囲付きの Explorer へのリンクを含めます。アラートエンジンは SSE と同じ共有 Docker `follow` ストリームを利用するため、複数のルールが同じコンテナを対象にしても Caroline 側の follow ストリームはコンテナごとに 1 本です。
 
+Explorer の **Manage Alerts** から、アラートポリシーを独立した管理画面で確認できます。ポリシー数、発火中・有効・通知設定済みのサマリー、名前やクエリによる検索、状態フィルター、編集、一時停止・再開、削除に対応します。Webhook URL は一覧や API レスポンスに表示されず、既存の Webhook を保持したまま他の設定を編集できます。
+
 ルールとアラート状態は `ALERTS_FILE` のJSONファイルへ保存され、起動時に復元されます。ログ本文や一致したエントリ自体は保存せず、時間枠の集計と通知に必要なタイムスタンプ、発火開始時刻、peak 件数、container 名などの小さなメタデータだけを保持します。状態が `OK` と `FIRING` の間で遷移し、Webhook を設定したルールでは発火・解消時に通知します。Docker Composeでは `caroline-data` volume に保存されます。
 
 ### Timeline / Fields / Logs
@@ -100,7 +102,7 @@ Streaming を停止すると SSE 接続を閉じます。フィルター、時�
 - **Logs**: 新しい順 / 古い順の切り替え、Wrap Lines、Load More に対応します。
 - 行を選択すると詳細 drawer が開き、Summary、Payload、メタデータ、Entry JSON のコピーを確認できます。
 
-モバイルでは、左上のメニューボタンから Logs、Timeline、Fields を開きます。Fields は bottom sheet として表示されます。
+PC とモバイルでは、左上のメニューボタンからナビゲーションドロワーを開きます。「探索」「検出」カテゴリは折りたたみ可能で、実装済みの Logs、Timeline、Fields、Alerts へ移動できます。Fields はモバイルでは bottom sheet として表示されます。
 
 ### キーボード操作
 
@@ -231,7 +233,7 @@ SSE エンドポイントとアラートエンジンは `logstream.Manager` を�
 
 ### `/api/alerts`
 
-アラートルールは `ALERTS_FILE` で指定したJSONファイルで管理します。`GET /api/alerts` で一覧、`POST /api/alerts` で作成、`GET` または `PATCH` / `PUT /api/alerts/{id}` で取得・更新、`DELETE /api/alerts/{id}` で削除できます。Webhook URLを含むため、保存ファイルには `0600` の権限が設定されます。
+アラートルールは `ALERTS_FILE` で指定したJSONファイルで管理します。`GET /api/alerts` で一覧、`POST /api/alerts` で作成、`GET` または `PUT /api/alerts/{id}` で全項目を更新、`PATCH /api/alerts/{id}` で指定項目だけを更新、`DELETE /api/alerts/{id}` で削除できます。PATCH で省略した項目は保持されます。Webhook URLを含むため、保存ファイルには `0600` の権限が設定されます。
 
 作成例:
 
