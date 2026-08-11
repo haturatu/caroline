@@ -204,7 +204,7 @@ export const zhCN = {
 		window: "时间窗口（秒）",
 		cooldown: "冷却时间（秒）",
 		webhook: "Webhook URL",
-		webhookOptional: "可选的通用 Webhook",
+		webhookOptional: "可选的 Webhook URL（根据网址自动判断）",
 		save: "创建告警",
 		cancel: "取消",
 		delete: "删除",

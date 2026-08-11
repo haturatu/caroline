@@ -205,7 +205,7 @@ export const ja = {
 		window: "ウィンドウ（秒）",
 		cooldown: "クールダウン（秒）",
 		webhook: "Webhook URL",
-		webhookOptional: "任意の汎用Webhook",
+		webhookOptional: "任意のWebhook URL（URLから自動判定）",
 		save: "アラートを作成",
 		cancel: "キャンセル",
 		delete: "削除",

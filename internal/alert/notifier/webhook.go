@@ -20,6 +20,16 @@ type Webhook struct {
 	ExplorerBaseURL string
 }
 
+type webhookProvider string
+
+const (
+	providerGeneric webhookProvider = "generic"
+	providerDiscord webhookProvider = "discord"
+	providerSlack   webhookProvider = "slack"
+	providerNtfy    webhookProvider = "ntfy"
+	providerTeams   webhookProvider = "teams"
+)
+
 func (w Webhook) Notify(ctx context.Context, rule alert.Rule, notification alert.Notification) error {
 	if rule.WebhookURL == "" {
 		return nil
@@ -36,13 +46,22 @@ func (w Webhook) Notify(ctx context.Context, rule alert.Rule, notification alert
 	endpoint := rule.WebhookURL
 	var body []byte
 	var err error
-	if isDiscordWebhookURL(endpoint) {
+	headers := map[string]string{"Content-Type": "application/json"}
+	switch detectWebhookProvider(endpoint) {
+	case providerDiscord:
 		endpoint, err = discordEndpoint(endpoint)
 		if err != nil {
 			return err
 		}
 		body, err = json.Marshal(discordPayload(notification))
-	} else {
+	case providerSlack:
+		body, err = json.Marshal(buildSlackPayload(notification))
+	case providerNtfy:
+		body = []byte(ntfyMessage(notification))
+		headers = ntfyHeaders(notification)
+	case providerTeams:
+		body, err = json.Marshal(buildTeamsPayload(notification))
+	case providerGeneric:
 		body, err = json.Marshal(notification)
 	}
 	if err != nil {
@@ -52,7 +71,9 @@ func (w Webhook) Notify(ctx context.Context, rule alert.Rule, notification alert
 	if err != nil {
 		return err
 	}
-	request.Header.Set("Content-Type", "application/json")
+	for name, value := range headers {
+		request.Header.Set(name, value)
+	}
 	request.Header.Set("User-Agent", "Caroline-Alert/1.0")
 	response, err := client.Do(request)
 	if err != nil {
@@ -289,17 +310,37 @@ func truncateDiscordText(value string, limit int) string {
 	return string(runes[:limit-1]) + "…"
 }
 
-func isDiscordWebhookURL(raw string) bool {
+func detectWebhookProvider(raw string) webhookProvider {
 	parsed, err := url.Parse(raw)
 	if err != nil || !strings.EqualFold(parsed.Scheme, "https") {
-		return false
+		return providerGeneric
 	}
-	switch strings.ToLower(parsed.Hostname()) {
+	host := strings.ToLower(parsed.Hostname())
+	path := strings.ToLower(parsed.Path)
+	switch host {
 	case "discord.com", "discordapp.com", "canary.discord.com", "ptb.discord.com":
-		return strings.HasPrefix(parsed.Path, "/api/webhooks/")
-	default:
-		return false
+		if strings.HasPrefix(path, "/api/webhooks/") {
+			return providerDiscord
+		}
+	case "hooks.slack.com", "hooks.slack-gov.com":
+		if strings.HasPrefix(path, "/services/") {
+			return providerSlack
+		}
+	case "ntfy.sh":
+		if strings.Trim(path, "/") != "" {
+			return providerNtfy
+		}
 	}
+	if strings.HasSuffix(host, ".logic.azure.com") &&
+		strings.Contains(path, "/workflows/") &&
+		strings.Contains(path, "/triggers/") &&
+		strings.Contains(path, "/paths/invoke") {
+		return providerTeams
+	}
+	if strings.HasSuffix(host, ".api.powerplatform.com") && strings.Contains(path, "/powerautomate") {
+		return providerTeams
+	}
+	return providerGeneric
 }
 
 func discordEndpoint(raw string) (string, error) {

@@ -18,7 +18,7 @@ The name came from listening to The Velvet Underground's “Caroline” while wo
 - Full-field search and Caroline Query Syntax
 - Timeline, field aggregation, and a log detail drawer
 - Streaming display of new logs over SSE
-- Threshold-based log alerts with optional generic webhooks (including Discord Incoming Webhooks)
+- Threshold-based log alerts with automatic Discord, Slack, ntfy, Microsoft Teams, and generic webhook delivery
 - Share links that preserve the current search
 - Dark and light themes with mobile navigation
 - English, Japanese, Simplified Chinese, Traditional Chinese, and Russian UI
@@ -98,7 +98,7 @@ Stopping Streaming closes the SSE connection. Changing filters, the time range, 
 
 ### Alerts
 
-Create an alert from the current query with a threshold, time window, cooldown, severity, labels, an optional runbook URL, and a sample redaction mode. Discord Incoming Webhook URLs (`https://discord.com/api/webhooks/...`) are sent using Discord's `embeds` payload format; other URLs receive the generic JSON payload. Set `CAROLINE_URL` to the public Caroline URL to include a time-bounded Explorer deep link in notifications. The alert engine consumes the same shared Docker `follow` streams as SSE, so each running container has at most one Caroline-side follow stream regardless of how many alert rules use it.
+Create an alert from the current query with a threshold, time window, cooldown, severity, labels, an optional runbook URL, and a sample redaction mode. The UI keeps only `Runbook URL` and `Webhook URL`; Caroline detects the webhook provider from the HTTPS host and path. It supports Discord (`discord.com/api/webhooks/...`), Slack Incoming Webhooks (`hooks.slack.com/services/...`), ntfy topics (`ntfy.sh/<topic>`), Microsoft Teams Workflows (`*.logic.azure.com/.../paths/invoke` and `*.api.powerplatform.com/powerautomate/...`), and generic JSON for other URLs. Set `CAROLINE_URL` to the public Caroline URL to include a time-bounded Explorer deep link in notifications. The alert engine consumes the same shared Docker `follow` streams as SSE, so each running container has at most one Caroline-side follow stream regardless of how many alert rules use it.
 
 Rules and alert state are persisted to the JSON file configured by `ALERTS_FILE` and restored on startup. Caroline does not store log bodies or matching entries themselves; it keeps timestamps and small incident metadata such as firing start, peak count, and container name. A rule transitions between `OK` and `FIRING`, and sends a webhook notification for firing and resolution events when a webhook is configured. Docker Compose stores the file in the `caroline-data` volume.
 
@@ -262,7 +262,7 @@ Create a rule with JSON such as:
 
 Webhook payloads contain `alert.firing` or `alert.resolved`, the stable rule ID, severity and labels, rule query, current and peak match counts, threshold, window, container, firing start time, timestamp, Explorer URL, runbook URL, and a redacted sample entry when enabled. `sampleMode` can be `off`, `summary`, or `full`; full samples are sanitized before leaving Caroline. Webhook URLs are not returned by the API.
 
-Discord Incoming Webhooks follow Discord's [Execute Webhook](https://docs.discord.com/developers/resources/webhook#execute-webhook) format, including an `embeds` message and `allowed_mentions: {"parse": []}`. Caroline also sends `wait=true` so Discord confirms message creation.
+Discord Incoming Webhooks follow Discord's [Execute Webhook](https://docs.discord.com/developers/resources/webhook#execute-webhook) format, including an `embeds` message and `allowed_mentions: {"parse": []}`. Caroline also sends `wait=true` so Discord confirms message creation. Slack uses the official [Incoming Webhooks](https://docs.slack.dev/messaging/sending-messages-using-incoming-webhooks/) JSON and Block Kit format, ntfy uses the official [publishing headers and message body](https://docs.ntfy.sh/publish/), and Teams uses the Microsoft [Teams webhook connector](https://learn.microsoft.com/en-us/connectors/teams/) message envelope with an Adaptive Card. Unknown webhook hosts retain the generic JSON payload.
 
 ## Development
 

@@ -211,7 +211,7 @@ export const ru = {
 		window: "Окно (секунды)",
 		cooldown: "Пауза (секунды)",
 		webhook: "URL вебхука",
-		webhookOptional: "Необязательный общий вебхук",
+		webhookOptional: "Необязательный URL вебхука (определяется по адресу)",
 		save: "Создать оповещение",
 		cancel: "Отмена",
 		delete: "Удалить",
