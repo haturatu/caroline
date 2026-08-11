@@ -55,9 +55,10 @@ export function renderNodesError(message: string): void {
 	$("#nodeList").innerHTML = `<p class="nodes-empty"><strong>${escapeHTML(t("nodes.loadFailed"))}</strong> ${escapeHTML(message)}</p>`;
 }
 
-export function renderEnrollmentToken(token: string, expiresAt: string): void {
+export function renderEnrollmentToken(token: string, enrollmentUrl: string, expiresAt: string): void {
 	const panel = $("#nodeEnrollmentResult");
 	panel.removeAttribute("hidden");
 	$("#nodeEnrollmentToken").textContent = token;
+	$("#nodeEnrollmentURL").textContent = enrollmentUrl || t("common.notAvailable");
 	$("#nodeEnrollmentExpires").textContent = t("nodes.expires", { time: formatTime(expiresAt) });
 }
