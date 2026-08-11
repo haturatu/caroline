@@ -129,6 +129,14 @@ export function AppShell(): Node {
 									view="alerts"
 								/>
 							</NavigationSection>
+							<NavigationSection id="manageNav" labelKey="nav.manage">
+								<NavigationItem
+									id="nodesNavButton"
+									labelKey="nav.nodes"
+									path="M12 3a3 3 0 1 0 0 6 3 3 0 0 0 0-6ZM5 15a3 3 0 1 0 0 6 3 3 0 0 0 0-6Zm14 0a3 3 0 1 0 0 6 3 3 0 0 0 0-6ZM12 9v3M7.5 16.5 11 12M16.5 16.5 13 12"
+									view="nodes"
+								/>
+							</NavigationSection>
 						</div>
 					</nav>
 					<div className="mobile-nav-backdrop" id="mobileNavBackdrop" hidden />
@@ -202,6 +210,7 @@ export function AppShell(): Node {
 						</div>
 
 						<AlertManagementView />
+						<NodeManagementView />
 					</main>
 				</div>
 			</div>
@@ -458,6 +467,9 @@ function QueryPanel(): Node {
 				<FilterControl id="containerFilter" label="Container">
 					<option value="">All containers</option>
 				</FilterControl>
+				<FilterControl id="nodeFilter" label="Node">
+					<option value="">All nodes</option>
+				</FilterControl>
 				<FilterControl id="streamFilter" label="Stream">
 					<option value="">All streams</option>
 					<option value="stdout">stdout</option>
@@ -700,6 +712,65 @@ function AlertManagementView(): Node {
 	);
 }
 
+function NodeManagementView(): Node {
+	return (
+		<section
+			className="node-management-view"
+			id="nodesView"
+			hidden
+			aria-labelledby="nodesPageTitle"
+		>
+			<div className="page-heading node-page-heading">
+				<div>
+					<div className="section-kicker" data-i18n="nodes.kicker">
+						NODES
+					</div>
+					<h1 id="nodesPageTitle" tabIndex={-1} data-i18n="nodes.pageTitle">
+						Nodes
+					</h1>
+					<p data-i18n="nodes.pageDescription">
+						Manage Docker hosts connected through Caroline Agent.
+					</p>
+				</div>
+				<div className="heading-actions">
+					<button className="text-button" id="refreshNodesButton" type="button" data-i18n="nodes.refresh">
+						Refresh Nodes
+					</button>
+					<button className="run-button" id="createEnrollmentButton" type="button" data-i18n="nodes.createEnrollment">
+						Create Enrollment Token
+					</button>
+				</div>
+			</div>
+
+			<div className="node-info-banner">
+				<strong data-i18n="nodes.securityTitle">Agent authentication</strong>
+				<p data-i18n="nodes.securityDescription">
+					Enrollment tokens are single-use. Agents sign subsequent requests with their persistent key.
+				</p>
+			</div>
+			<div className="node-enrollment-result" id="nodeEnrollmentResult" hidden>
+				<div>
+					<strong data-i18n="nodes.tokenCreated">Enrollment token created</strong>
+					<p id="nodeEnrollmentExpires" />
+				</div>
+				<code id="nodeEnrollmentToken" />
+				<button className="text-button" id="copyEnrollmentButton" type="button" data-i18n="nodes.copyToken">
+					Copy Token
+				</button>
+			</div>
+			<div className="node-list-panel">
+				<div className="node-list-heading">
+					<h2 data-i18n="nodes.connectedHosts">Connected hosts</h2>
+					<span id="nodeListCount" />
+				</div>
+				<div id="nodeList">
+					<p className="nodes-empty" data-i18n="nodes.loading">Loading nodes…</p>
+				</div>
+			</div>
+		</section>
+	);
+}
+
 function SummaryCard({ id, label }: { id: string; label: string }): Node {
 	return (
 		<div className="alert-summary-card">
@@ -749,7 +820,7 @@ function NavigationItem({
 	id: string;
 	labelKey: string;
 	path: string;
-	view?: "explorer" | "alerts";
+	view?: "explorer" | "alerts" | "nodes";
 	section?: "timeline" | "fields";
 }): Node {
 	return (

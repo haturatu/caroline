@@ -101,6 +101,10 @@ func queryValue(entry Entry, field string) []queryFieldValue {
 		return []queryFieldValue{textQueryFieldValue(entry.Resource.Labels["container_id"])}
 	case "resource.labels.image", "container.image":
 		return []queryFieldValue{textQueryFieldValue(entry.Resource.Labels["image"])}
+	case "resource.labels.node_id", "node.id":
+		return []queryFieldValue{textQueryFieldValue(entry.Resource.Labels["node_id"])}
+	case "resource.labels.node_name", "node", "node.name":
+		return []queryFieldValue{textQueryFieldValue(entry.Resource.Labels["node_name"])}
 	case "timestamp":
 		return []queryFieldValue{textQueryFieldValue(entry.Timestamp.Format(time.RFC3339Nano))}
 	}

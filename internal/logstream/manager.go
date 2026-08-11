@@ -154,8 +154,18 @@ func (m *Manager) Subscribe(
 	since time.Time,
 	maxContainers int,
 ) (*Subscription, error) {
+	return m.SubscribeWithNodes(ctx, selected, nil, since, maxContainers)
+}
+
+func (m *Manager) SubscribeWithNodes(
+	ctx context.Context,
+	selected map[string]bool,
+	selectedNodes map[string]bool,
+	since time.Time,
+	maxContainers int,
+) (*Subscription, error) {
 	if m.broker != nil {
-		return m.broker.Subscribe(ctx, selected, nil, since), nil
+		return m.broker.Subscribe(ctx, selected, selectedNodes, since), nil
 	}
 	containers, err := m.listRunning(ctx)
 	if err != nil {
@@ -177,12 +187,13 @@ func (m *Manager) Subscribe(
 	}
 
 	owner := &subscriber{
-		manager:  m,
-		selected: cloneSelection(selected),
-		since:    since,
-		done:     make(chan struct{}),
-		entries:  make(chan explorer.Entry, defaultSubscriptionBuffer),
-		errors:   make(chan StreamError, 32),
+		manager:       m,
+		selected:      cloneSelection(selected),
+		selectedNodes: cloneSelection(selectedNodes),
+		since:         since,
+		done:          make(chan struct{}),
+		entries:       make(chan explorer.Entry, defaultSubscriptionBuffer),
+		errors:        make(chan StreamError, 32),
 	}
 	newStreams := make([]*stream, 0, len(streamedContainers))
 	m.mu.Lock()

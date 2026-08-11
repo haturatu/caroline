@@ -1,11 +1,29 @@
 export type Severity = "" | "DEBUG" | "INFO" | "WARNING" | "ERROR";
 export type SortOrder = "asc" | "desc";
 export type Theme = "dark" | "light";
-export type AppView = "explorer" | "alerts";
+export type AppView = "explorer" | "alerts" | "nodes";
+
+export type NodeStatus = "registering" | "online" | "offline" | "revoked" | string;
+
+export interface NodeInfo {
+	id: string;
+	name: string;
+	fingerprint: string;
+	hostname: string;
+	os: string;
+	architecture: string;
+	agentVersion?: string;
+	protocolVersion: number;
+	connectedAt?: string;
+	lastSeenAt?: string;
+	status: NodeStatus;
+}
 
 export interface ContainerInfo {
 	id: string;
 	name: string;
+	nodeId?: string;
+	nodeName?: string;
 	image: string;
 	status: string;
 	logCount: number;
@@ -93,6 +111,7 @@ export interface AppState {
 	query: string;
 	draftQuery: string;
 	searchText: string;
+	node: string;
 	showQuery: boolean;
 	container: string;
 	stream: string;
@@ -128,6 +147,11 @@ export interface AppState {
 		error: string;
 		search: string;
 		statusFilter: "all" | "OK" | "FIRING" | "PAUSED";
+	};
+	nodes: {
+		items: NodeInfo[];
+		loading: boolean;
+		error: string;
 	};
 }
 

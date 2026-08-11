@@ -18,6 +18,7 @@ export const ru = {
 		timeline: "Временная шкала",
 		fields: "Поля",
 	},
+	nodes: { ...en.nodes },
 	status: {
 		engine: "Docker Engine",
 		waitingForConnection: "Ожидание подключения",
@@ -76,6 +77,8 @@ export const ru = {
 		language: "Язык",
 	},
 	filters: {
+		node: "Узел",
+		allNodes: "Все узлы",
 		container: "Контейнер",
 		allContainers: "Все контейнеры",
 		stream: "Поток",

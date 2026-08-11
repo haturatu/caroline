@@ -42,6 +42,17 @@ func RequestedContainers(value string) map[string]bool {
 	return result
 }
 
+func RequestedNodes(value string) map[string]bool {
+	result := make(map[string]bool)
+	for _, item := range strings.Split(value, ",") {
+		item = strings.TrimSpace(item)
+		if item != "" {
+			result[item] = true
+		}
+	}
+	return result
+}
+
 func MatchesContainerSelection(container docker.Container, selected map[string]bool) bool {
 	if selected[container.ID] || selected[container.ID[:min(12, len(container.ID))]] {
 		return true
