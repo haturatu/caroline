@@ -407,7 +407,8 @@ export function AppShell(): Node {
 						×
 					</button>
 				</div>
-				<div id="detailBody" />
+				<div className="detail-drawer-body" id="detailBody" />
+				<div className="detail-drawer-footer" id="detailFooter" hidden />
 			</dialog>
 			<div
 				className="toast"
