@@ -23,6 +23,7 @@ import (
 const (
 	defaultRetention       = 7 * 24 * time.Hour
 	defaultMaxStorageBytes = 10 * (1 << 30)
+	defaultRetentionMode   = sqlite.RetentionModeIndependent
 )
 
 func main() {
@@ -91,10 +92,11 @@ func main() {
 	server.ConfigureHub(store, nodeService, ingestService, broker)
 	retention := parseDurationEnv("CAROLINE_RETENTION", defaultRetention)
 	maxStorageBytes := parseByteSizeEnv("CAROLINE_MAX_STORAGE_SIZE", defaultMaxStorageBytes)
+	retentionMode := parseRetentionMode()
 	if retention > 0 || maxStorageBytes > 0 {
 		retentionContext, cancelRetention := context.WithCancel(context.Background())
 		defer cancelRetention()
-		go runRetention(retentionContext, store, retention, maxStorageBytes)
+		go runRetention(retentionContext, store, retention, maxStorageBytes, retentionMode)
 	}
 	if err := server.Run(port); err != nil {
 		log.Fatal(err)
@@ -102,16 +104,16 @@ func main() {
 }
 
 type retentionStore interface {
-	Cleanup(context.Context, time.Time, int64) (int, error)
+	Cleanup(context.Context, time.Time, int64, sqlite.RetentionMode) (int, error)
 }
 
-func runRetention(ctx context.Context, store retentionStore, retention time.Duration, maxStorageBytes int64) {
+func runRetention(ctx context.Context, store retentionStore, retention time.Duration, maxStorageBytes int64, mode sqlite.RetentionMode) {
 	cleanup := func() {
 		before := time.Time{}
 		if retention > 0 {
 			before = time.Now().UTC().Add(-retention)
 		}
-		deleted, err := store.Cleanup(ctx, before, maxStorageBytes)
+		deleted, err := store.Cleanup(ctx, before, maxStorageBytes, mode)
 		if err != nil && ctx.Err() == nil {
 			log.Printf("log retention cleanup failed: %v", err)
 			return
@@ -133,6 +135,21 @@ func runRetention(ctx context.Context, store retentionStore, retention time.Dura
 	}
 }
 
+func parseRetentionMode() sqlite.RetentionMode {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv("CAROLINE_RETENTION_MODE")))
+	switch value {
+	case "", string(sqlite.RetentionModeIndependent):
+		return sqlite.RetentionModeIndependent
+	case string(sqlite.RetentionModeSource):
+		return sqlite.RetentionModeSource
+	case string(sqlite.RetentionModeMin):
+		return sqlite.RetentionModeMin
+	default:
+		log.Printf("ignoring invalid CAROLINE_RETENTION_MODE=%q; using default %q", value, defaultRetentionMode)
+		return defaultRetentionMode
+	}
+}
+
 func parseDurationEnv(key string, fallback time.Duration) time.Duration {
 	value := strings.TrimSpace(os.Getenv(key))
 	if value == "" {
@@ -141,12 +158,25 @@ func parseDurationEnv(key string, fallback time.Duration) time.Duration {
 	if strings.EqualFold(value, "0") || strings.EqualFold(value, "off") || strings.EqualFold(value, "disabled") {
 		return 0
 	}
-	parsed, err := time.ParseDuration(value)
+	parsed, err := parseDuration(value)
 	if err != nil || parsed <= 0 {
 		log.Printf("ignoring invalid %s=%q; using default %s", key, value, fallback)
 		return fallback
 	}
 	return parsed
+}
+
+func parseDuration(value string) (time.Duration, error) {
+	lower := strings.ToLower(strings.TrimSpace(value))
+	if strings.HasSuffix(lower, "d") {
+		days, err := strconv.ParseInt(strings.TrimSpace(strings.TrimSuffix(lower, "d")), 10, 64)
+		const maxDurationDays = int64(1<<63-1) / int64(24*time.Hour)
+		if err != nil || days <= 0 || days > maxDurationDays {
+			return 0, strconv.ErrRange
+		}
+		return time.Duration(days) * 24 * time.Hour, nil
+	}
+	return time.ParseDuration(value)
 }
 
 func parseByteSizeEnv(key string, fallback int64) int64 {

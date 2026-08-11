@@ -21,18 +21,21 @@ const (
 )
 
 type ContainerInfo struct {
-	ID           string            `json:"id"`
-	Name         string            `json:"name"`
-	NodeID       string            `json:"nodeId,omitempty"`
-	NodeName     string            `json:"nodeName,omitempty"`
-	Image        string            `json:"image"`
-	State        string            `json:"state"`
-	Status       string            `json:"status"`
-	Created      time.Time         `json:"created"`
-	Labels       map[string]string `json:"labels,omitempty"`
-	LogCount     int               `json:"logCount"`
-	ErrorCount   int               `json:"errorCount"`
-	WarningCount int               `json:"warningCount"`
+	ID             string            `json:"id"`
+	Name           string            `json:"name"`
+	NodeID         string            `json:"nodeId,omitempty"`
+	NodeName       string            `json:"nodeName,omitempty"`
+	Image          string            `json:"image"`
+	State          string            `json:"state"`
+	Status         string            `json:"status"`
+	Created        time.Time         `json:"created"`
+	Labels         map[string]string `json:"labels,omitempty"`
+	LoggingDriver  string            `json:"loggingDriver,omitempty"`
+	LoggingOptions map[string]string `json:"loggingOptions,omitempty"`
+	OldestLogAt    time.Time         `json:"oldestLogAt,omitempty"`
+	LogCount       int               `json:"logCount"`
+	ErrorCount     int               `json:"errorCount"`
+	WarningCount   int               `json:"warningCount"`
 }
 
 type Resource struct {

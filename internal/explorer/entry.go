@@ -34,16 +34,30 @@ func ToContainerInfo(container docker.Container) ContainerInfo {
 func ToContainerInfoForNode(container docker.Container, nodeID, nodeName string) ContainerInfo {
 	created := time.Unix(container.Created, 0).UTC()
 	return ContainerInfo{
-		ID:       container.ID,
-		Name:     ContainerName(container),
-		NodeID:   nodeID,
-		NodeName: nodeName,
-		Image:    container.Image,
-		State:    container.State,
-		Status:   container.Status,
-		Created:  created,
-		Labels:   container.Labels,
+		ID:             container.ID,
+		Name:           ContainerName(container),
+		NodeID:         nodeID,
+		NodeName:       nodeName,
+		Image:          container.Image,
+		State:          container.State,
+		Status:         container.Status,
+		Created:        created,
+		Labels:         container.Labels,
+		LoggingDriver:  container.LoggingDriver,
+		LoggingOptions: cloneStringMap(container.LoggingOptions),
+		OldestLogAt:    container.OldestLogAt,
 	}
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+	cloned := make(map[string]string, len(values))
+	for key, value := range values {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func ParseLogFrame(frame docker.Frame, container docker.Container) []LogLine {

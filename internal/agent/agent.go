@@ -12,15 +12,24 @@ import (
 	"caroline/internal/logstream"
 )
 
+const oldestLogRefreshInterval = 5 * time.Minute
+
+type containerRetentionState struct {
+	checkedAt   time.Time
+	oldestLogAt time.Time
+}
+
 type Agent struct {
-	config    Config
-	identity  Identity
-	bootID    string
-	sender    *Sender
-	spool     *Spool
-	startedAt time.Time
-	sequence  uint64
-	entryID   uint64
+	config             Config
+	identity           Identity
+	bootID             string
+	sender             *Sender
+	spool              *Spool
+	startedAt          time.Time
+	sequence           uint64
+	entryID            uint64
+	containerRetention map[string]containerRetentionState
+	containerInfos     []explorer.ContainerInfo
 }
 
 func New(config Config, identity Identity) (*Agent, error) {
@@ -36,7 +45,10 @@ func New(config Config, identity Identity) (*Agent, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Agent{config: config, identity: identity, bootID: bootID, sender: sender, spool: spool, startedAt: time.Now().UTC()}, nil
+	return &Agent{
+		config: config, identity: identity, bootID: bootID, sender: sender, spool: spool,
+		startedAt: time.Now().UTC(), containerRetention: make(map[string]containerRetentionState),
+	}, nil
 }
 
 func (a *Agent) Run(ctx context.Context) error {
@@ -123,7 +135,7 @@ func (a *Agent) runCollection(ctx context.Context, manager *logstream.Manager, s
 				log.Printf("agent container discovery failed: %v", err)
 			}
 		case <-heartbeatTicker.C:
-			if err := a.sendHeartbeat(ctx, source, queue); err != nil {
+			if err := a.sendHeartbeat(ctx, queue); err != nil {
 				log.Printf("agent heartbeat failed: %v", err)
 			}
 		case <-ctx.Done():
@@ -173,25 +185,46 @@ func (a *Agent) refreshContainers(ctx context.Context, source *docker.Client, qu
 		return err
 	}
 	infos := make([]explorer.ContainerInfo, 0, len(containers))
-	for _, container := range containers {
-		infos = append(infos, explorer.ToContainerInfoForNode(container, a.identity.AgentID, a.identity.Hostname))
+	now := time.Now().UTC()
+	for index := range containers {
+		container := &containers[index]
+		logConfig, inspectErr := source.InspectContainer(ctx, container.ID)
+		if inspectErr != nil {
+			log.Printf("agent Docker inspect failed for %s: %v", explorer.ContainerName(*container), inspectErr)
+		} else {
+			container.LoggingDriver = logConfig.Type
+			container.LoggingOptions = logConfig.Config
+		}
+
+		state := a.containerRetention[container.ID]
+		if state.checkedAt.IsZero() || now.Sub(state.checkedAt) >= oldestLogRefreshInterval {
+			oldestLogAt, oldestErr := source.OldestLogTime(ctx, container.ID)
+			state.checkedAt = now
+			if oldestErr != nil {
+				log.Printf("agent Docker oldest log lookup failed for %s: %v", explorer.ContainerName(*container), oldestErr)
+			} else {
+				state.oldestLogAt = oldestLogAt
+			}
+			a.containerRetention[container.ID] = state
+		}
+		container.OldestLogAt = state.oldestLogAt
+		infos = append(infos, explorer.ToContainerInfoForNode(*container, a.identity.AgentID, a.identity.Hostname))
 	}
+	a.containerInfos = append(a.containerInfos[:0], infos...)
 	queue.SetContainers(infos)
 	return nil
 }
 
-func (a *Agent) sendHeartbeat(ctx context.Context, source *docker.Client, queue *BatchQueue) error {
-	containers, err := source.ListRunning(ctx)
-	if err != nil {
-		return err
-	}
+func (a *Agent) sendHeartbeat(ctx context.Context, queue *BatchQueue) error {
 	spoolBytes, err := a.spool.Bytes()
 	if err != nil {
 		return err
 	}
+	containerMetadata := append([]explorer.ContainerInfo(nil), a.containerInfos...)
 	return a.sender.Heartbeat(ctx, agentproto.Heartbeat{
 		ProtocolVersion: agentproto.ProtocolVersion, AgentID: a.identity.AgentID, BootID: a.bootID,
 		AgentTime: time.Now().UTC(), UptimeSeconds: int64(time.Since(a.startedAt).Seconds()),
-		Containers: len(containers), QueueDepth: queue.Len(), SpoolBytes: spoolBytes,
+		Containers: len(containerMetadata), ContainerMetadata: containerMetadata,
+		QueueDepth: queue.Len(), SpoolBytes: spoolBytes,
 	})
 }

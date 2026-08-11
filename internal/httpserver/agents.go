@@ -20,6 +20,7 @@ import (
 const (
 	maxAgentRequestBytes = 8 * 1024 * 1024
 	maxRegisterBytes     = 128 * 1024
+	maxHeartbeatBytes    = 512 * 1024
 )
 
 func (s *Server) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
@@ -117,7 +118,7 @@ func (s *Server) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "agent heartbeat is unavailable")
 		return
 	}
-	body, err := readAgentBody(w, r, maxRegisterBytes)
+	body, err := readAgentBody(w, r, maxHeartbeatBytes)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -132,8 +133,12 @@ func (s *Server) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request) {
 		writeAgentAuthError(w, err)
 		return
 	}
-	if err := s.ingest.Heartbeat(r.Context(), authenticated); err != nil {
-		writeAgentAuthError(w, err)
+	if err := s.ingest.Heartbeat(r.Context(), authenticated, heartbeat); err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, ingest.ErrAgentMismatch) {
+			status = http.StatusForbidden
+		}
+		writeError(w, status, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "lastSeenAt": time.Now().UTC()})

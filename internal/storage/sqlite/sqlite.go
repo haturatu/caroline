@@ -25,12 +25,20 @@ type Store struct {
 	mu   sync.Mutex
 }
 
-// Cleanup removes log bodies older than before and, when maxBytes is set,
-// removes the oldest rows until the logical payload budget is met. SQLite
-// pages are reclaimed by SQLite according to its normal journaling policy;
-// the budget intentionally measures retained log payload rather than the
-// database file's transient WAL size.
-func (s *Store) Cleanup(ctx context.Context, before time.Time, maxBytes int64) (int, error) {
+type RetentionMode string
+
+const (
+	RetentionModeIndependent RetentionMode = "independent"
+	RetentionModeSource      RetentionMode = "source"
+	RetentionModeMin         RetentionMode = "min"
+)
+
+// Cleanup applies the Hub retention policy and, when maxBytes is set, removes
+// the oldest rows until the logical payload budget is met. Source and min modes
+// use the oldest timestamp reported by each Agent/container. SQLite pages are
+// reclaimed according to its normal journaling policy; the budget intentionally
+// measures retained log payload rather than the database file's transient WAL.
+func (s *Store) Cleanup(ctx context.Context, before time.Time, maxBytes int64, mode RetentionMode) (int, error) {
 	deleted := 0
 	err := s.withConn(ctx, func(conn *sqlite.Conn) error {
 		var txErr error
@@ -40,11 +48,28 @@ func (s *Store) Cleanup(ctx context.Context, before time.Time, maxBytes int64) (
 		}
 		defer end(&txErr)
 
-		if err := exec(conn, `DELETE FROM logs WHERE timestamp_ns < ?1`, []any{before.UnixNano()}); err != nil {
-			txErr = err
-			return err
+		var ageClauses []string
+		var ageArgs []any
+		if mode != RetentionModeSource && !before.IsZero() {
+			ageClauses = append(ageClauses, "timestamp_ns < ?")
+			ageArgs = append(ageArgs, before.UnixNano())
 		}
-		deleted += conn.Changes()
+		if mode == RetentionModeSource || mode == RetentionModeMin {
+			ageClauses = append(ageClauses, `EXISTS (
+				SELECT 1 FROM containers
+				WHERE containers.node_id = logs.node_id
+				  AND containers.container_id = logs.container_id
+				  AND containers.oldest_log_at_ns > 0
+				  AND logs.timestamp_ns < containers.oldest_log_at_ns
+			)`)
+		}
+		if len(ageClauses) > 0 {
+			if err := exec(conn, `DELETE FROM logs WHERE `+strings.Join(ageClauses, " OR "), ageArgs); err != nil {
+				txErr = err
+				return err
+			}
+			deleted += conn.Changes()
+		}
 		if maxBytes <= 0 {
 			return nil
 		}
@@ -107,7 +132,10 @@ func Open(path string) (*Store, error) {
 	}
 	store := &Store{conn: conn}
 	if err := store.withConn(context.Background(), func(conn *sqlite.Conn) error {
-		return sqlitex.ExecScript(conn, schema)
+		if err := sqlitex.ExecScript(conn, schema); err != nil {
+			return err
+		}
+		return ensureContainerColumns(conn)
 	}); err != nil {
 		_ = conn.Close()
 		return nil, fmt.Errorf("migrate sqlite store: %w", err)
@@ -150,6 +178,39 @@ func exec(conn *sqlite.Conn, query string, args []any) error {
 
 func execRows(conn *sqlite.Conn, query string, args []any, fn func(*sqlite.Stmt) error) error {
 	return sqlitex.Execute(conn, query, &sqlitex.ExecOptions{Args: args, ResultFunc: fn})
+}
+
+func ensureContainerColumns(conn *sqlite.Conn) error {
+	present := make(map[string]bool)
+	if err := execRows(conn, `PRAGMA table_info(containers)`, nil, func(stmt *sqlite.Stmt) error {
+		present[stmt.ColumnText(1)] = true
+		return nil
+	}); err != nil {
+		return err
+	}
+	migrations := []struct {
+		name  string
+		query string
+	}{
+		{name: "logging_driver", query: `ALTER TABLE containers ADD COLUMN logging_driver TEXT NOT NULL DEFAULT ''`},
+		{name: "logging_options_json", query: `ALTER TABLE containers ADD COLUMN logging_options_json TEXT`},
+		{name: "oldest_log_at_ns", query: `ALTER TABLE containers ADD COLUMN oldest_log_at_ns INTEGER NOT NULL DEFAULT 0`},
+	}
+	for _, migration := range migrations {
+		if !present[migration.name] {
+			if err := exec(conn, migration.query, nil); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func optionalTimeUnixNano(value time.Time) int64 {
+	if value.IsZero() {
+		return 0
+	}
+	return value.UnixNano()
 }
 
 func (s *Store) WriteBatch(ctx context.Context, batch explorer.EntryBatch) (accepted bool, err error) {
@@ -218,20 +279,29 @@ INSERT OR IGNORE INTO logs(
 			if marshalErr != nil {
 				return marshalErr
 			}
+			loggingOptionsJSON, marshalErr := json.Marshal(container.LoggingOptions)
+			if marshalErr != nil {
+				return marshalErr
+			}
 			err = exec(conn, `
 INSERT INTO containers(
-    node_id, node_name, container_id, container_name, image, state, status,
-    created_ns, labels_json, log_count, error_count, warning_count, last_seen_ns
-) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+	    node_id, node_name, container_id, container_name, image, state, status,
+	    created_ns, labels_json, logging_driver, logging_options_json,
+	    oldest_log_at_ns, log_count, error_count, warning_count, last_seen_ns
+) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
 ON CONFLICT(node_id, container_id) DO UPDATE SET
-    node_name=excluded.node_name, container_name=excluded.container_name,
-    image=excluded.image, state=excluded.state, status=excluded.status,
-    created_ns=excluded.created_ns, labels_json=excluded.labels_json,
-    last_seen_ns=excluded.last_seen_ns`, []any{
+	    node_name=excluded.node_name, container_name=excluded.container_name,
+	    image=excluded.image, state=excluded.state, status=excluded.status,
+	    created_ns=excluded.created_ns, labels_json=excluded.labels_json,
+	    logging_driver=excluded.logging_driver, logging_options_json=excluded.logging_options_json,
+	    oldest_log_at_ns=CASE WHEN excluded.oldest_log_at_ns > 0
+	        THEN excluded.oldest_log_at_ns ELSE containers.oldest_log_at_ns END,
+	    last_seen_ns=excluded.last_seen_ns`, []any{
 				container.NodeID, container.NodeName, container.ID, container.Name,
 				container.Image, container.State, container.Status, container.Created.UnixNano(),
-				string(labelsJSON), container.LogCount, container.ErrorCount,
-				container.WarningCount, now,
+				string(labelsJSON), container.LoggingDriver, string(loggingOptionsJSON),
+				optionalTimeUnixNano(container.OldestLogAt), container.LogCount,
+				container.ErrorCount, container.WarningCount, now,
 			})
 			if err != nil {
 				return err
@@ -383,16 +453,24 @@ func (s *Store) ListContainers(ctx context.Context) ([]explorer.ContainerInfo, e
 	err := s.withConn(ctx, func(conn *sqlite.Conn) error {
 		return execRows(conn, `
 SELECT node_id, node_name, container_id, container_name, image, state, status,
-       created_ns, labels_json, log_count, error_count, warning_count
+       created_ns, labels_json, logging_driver, logging_options_json, oldest_log_at_ns,
+       log_count, error_count, warning_count
 FROM containers ORDER BY node_name, container_name, container_id`, nil, func(stmt *sqlite.Stmt) error {
 			info := explorer.ContainerInfo{
 				NodeID: stmt.ColumnText(0), NodeName: stmt.ColumnText(1), ID: stmt.ColumnText(2),
 				Name: stmt.ColumnText(3), Image: stmt.ColumnText(4), State: stmt.ColumnText(5),
 				Status: stmt.ColumnText(6), Created: time.Unix(0, stmt.ColumnInt64(7)).UTC(),
-				LogCount: stmt.ColumnInt(9), ErrorCount: stmt.ColumnInt(10), WarningCount: stmt.ColumnInt(11),
+				LoggingDriver: stmt.ColumnText(9), OldestLogAt: time.Unix(0, stmt.ColumnInt64(11)).UTC(),
+				LogCount: stmt.ColumnInt(12), ErrorCount: stmt.ColumnInt(13), WarningCount: stmt.ColumnInt(14),
 			}
 			if err := decodeJSON(stmt.ColumnText(8), &info.Labels); err != nil {
 				return err
+			}
+			if err := decodeJSON(stmt.ColumnText(10), &info.LoggingOptions); err != nil {
+				return err
+			}
+			if stmt.ColumnInt64(11) == 0 {
+				info.OldestLogAt = time.Time{}
 			}
 			containers = append(containers, info)
 			return nil
@@ -560,8 +638,10 @@ CREATE TABLE IF NOT EXISTS containers (
     container_name TEXT NOT NULL DEFAULT '', image TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT '', created_ns INTEGER NOT NULL DEFAULT 0, labels_json TEXT,
     log_count INTEGER NOT NULL DEFAULT 0, error_count INTEGER NOT NULL DEFAULT 0,
-    warning_count INTEGER NOT NULL DEFAULT 0, last_seen_ns INTEGER NOT NULL,
-    PRIMARY KEY (node_id, container_id)
+	warning_count INTEGER NOT NULL DEFAULT 0, last_seen_ns INTEGER NOT NULL,
+	logging_driver TEXT NOT NULL DEFAULT '', logging_options_json TEXT,
+	oldest_log_at_ns INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY (node_id, container_id)
 );
 CREATE INDEX IF NOT EXISTS containers_node_idx ON containers(node_id, container_name);
 CREATE TABLE IF NOT EXISTS nodes (

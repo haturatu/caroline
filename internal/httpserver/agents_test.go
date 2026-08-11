@@ -90,6 +90,30 @@ func TestAgentRegistrationAndCompressedIngest(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("ingest status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
+	heartbeatAt := time.Now().UTC()
+	heartbeatBody, _ := json.Marshal(agentproto.Heartbeat{
+		ProtocolVersion: agentproto.ProtocolVersion, AgentID: registerResponse.AgentID, BootID: "boot-1",
+		AgentTime: heartbeatAt, Containers: 1,
+		ContainerMetadata: []explorer.ContainerInfo{{
+			ID: "container-1", Name: "api", Image: "example/api:latest", State: "running", NodeID: registerResponse.AgentID,
+			LoggingDriver: "local", LoggingOptions: map[string]string{"max-size": "10m", "max-file": "3"},
+			OldestLogAt: heartbeatAt.Add(-time.Hour),
+		}},
+	})
+	heartbeatRequest := httptest.NewRequest(http.MethodPost, "/api/v1/agent/heartbeat", bytes.NewReader(heartbeatBody))
+	heartbeatRequest.Header.Set("Content-Type", "application/json")
+	if err := agentproto.ApplyRequestHeaders(heartbeatRequest, agentPrivate, heartbeatBody, heartbeatAt); err != nil {
+		t.Fatalf("ApplyRequestHeaders heartbeat: %v", err)
+	}
+	heartbeatRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(heartbeatRecorder, heartbeatRequest)
+	if heartbeatRecorder.Code != http.StatusOK {
+		t.Fatalf("heartbeat status=%d body=%s", heartbeatRecorder.Code, heartbeatRecorder.Body.String())
+	}
+	containers, err := store.ListContainers(context.Background())
+	if err != nil || len(containers) != 1 || containers[0].LoggingDriver != "local" || containers[0].LoggingOptions["max-file"] != "3" || containers[0].OldestLogAt.IsZero() {
+		t.Fatalf("unexpected heartbeat metadata: %#v err=%v", containers, err)
+	}
 	entries, err := store.SearchEntries(context.Background(), explorer.SearchRequest{From: now.Add(-time.Minute), To: now.Add(time.Minute)})
 	if err != nil || len(entries) != 1 || entries[0].Resource.Labels["node_name"] != "server-a" {
 		t.Fatalf("unexpected stored entries: %#v err=%v", entries, err)

@@ -3,11 +3,14 @@ package sqlite
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"caroline/internal/explorer"
 	"caroline/internal/node"
+	zombiesqlite "zombiezen.com/go/sqlite"
+	"zombiezen.com/go/sqlite/sqlitex"
 )
 
 func TestStoreWritesAndDeduplicatesBatch(t *testing.T) {
@@ -31,6 +34,8 @@ func TestStoreWritesAndDeduplicatesBatch(t *testing.T) {
 		Containers: []explorer.ContainerInfo{{
 			ID: "container-1", Name: "api", NodeID: "node-1", NodeName: "server-a",
 			Image: "example/api:latest", State: "running", Created: when,
+			LoggingDriver: "local", LoggingOptions: map[string]string{"max-size": "10m", "max-file": "3"},
+			OldestLogAt: when.Add(-time.Hour),
 		}},
 	}
 	accepted, err := store.WriteBatch(context.Background(), batch)
@@ -52,6 +57,49 @@ func TestStoreWritesAndDeduplicatesBatch(t *testing.T) {
 	containers, err := store.ListContainers(context.Background())
 	if err != nil || len(containers) != 1 || containers[0].NodeID != "node-1" {
 		t.Fatalf("unexpected containers: %#v err=%v", containers, err)
+	}
+	if containers[0].LoggingDriver != "local" || containers[0].LoggingOptions["max-file"] != "3" || !containers[0].OldestLogAt.Equal(when.Add(-time.Hour)) {
+		t.Fatalf("container retention metadata was not persisted: %#v", containers[0])
+	}
+}
+
+func TestStoreMigratesContainerRetentionColumns(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "legacy.db")
+	conn, err := zombiesqlite.OpenConn(databasePath)
+	if err != nil {
+		t.Fatalf("OpenConn: %v", err)
+	}
+	legacySchema := `CREATE TABLE containers(
+node_id TEXT NOT NULL, node_name TEXT NOT NULL DEFAULT '', container_id TEXT NOT NULL,
+container_name TEXT NOT NULL DEFAULT '', image TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT '',
+status TEXT NOT NULL DEFAULT '', created_ns INTEGER NOT NULL DEFAULT 0, labels_json TEXT,
+log_count INTEGER NOT NULL DEFAULT 0, error_count INTEGER NOT NULL DEFAULT 0,
+warning_count INTEGER NOT NULL DEFAULT 0, last_seen_ns INTEGER NOT NULL,
+PRIMARY KEY (node_id, container_id)
+)`
+	if err := sqlitex.Execute(conn, legacySchema, &sqlitex.ExecOptions{}); err != nil {
+		_ = conn.Close()
+		t.Fatalf("create legacy schema: %v", err)
+	}
+	if err := conn.Close(); err != nil {
+		t.Fatalf("close legacy database: %v", err)
+	}
+
+	store, err := Open(databasePath)
+	if err != nil {
+		t.Fatalf("Open migrated store: %v", err)
+	}
+	defer store.Close()
+	_, err = store.WriteBatch(context.Background(), explorer.EntryBatch{Containers: []explorer.ContainerInfo{{
+		ID: "container-1", NodeID: "node-1", Name: "api", LoggingDriver: "json-file",
+		LoggingOptions: map[string]string{"max-size": "10m"}, OldestLogAt: time.Unix(1700000000, 0).UTC(),
+	}}})
+	if err != nil {
+		t.Fatalf("WriteBatch after migration: %v", err)
+	}
+	containers, err := store.ListContainers(context.Background())
+	if err != nil || len(containers) != 1 || containers[0].LoggingDriver != "json-file" {
+		t.Fatalf("migrated metadata = %#v err=%v", containers, err)
 	}
 }
 
@@ -102,17 +150,74 @@ func TestStoreCleanupRemovesOldEntriesAndPayloadOverBudget(t *testing.T) {
 			t.Fatalf("WriteBatch(%s) accepted=%v err=%v", entry.InsertID, accepted, writeErr)
 		}
 	}
-	deleted, err := store.Cleanup(context.Background(), base.Add(-time.Minute), 0)
+	deleted, err := store.Cleanup(context.Background(), base.Add(-time.Minute), 0, RetentionModeIndependent)
 	if err != nil || deleted != 1 {
 		t.Fatalf("Cleanup by age deleted=%d err=%v, want 1", deleted, err)
 	}
-	deleted, err = store.Cleanup(context.Background(), time.Time{}, 50)
+	deleted, err = store.Cleanup(context.Background(), time.Time{}, 50, RetentionModeIndependent)
 	if err != nil || deleted != 1 {
 		t.Fatalf("Cleanup by budget deleted=%d err=%v, want 1", deleted, err)
 	}
 	remaining, err := store.SearchEntries(context.Background(), explorer.SearchRequest{From: base.Add(-time.Hour), To: base.Add(time.Hour)})
 	if err != nil || len(remaining) != 1 || remaining[0].InsertID != "new-2" {
 		t.Fatalf("unexpected remaining entries: %#v err=%v", remaining, err)
+	}
+}
+
+func TestStoreCleanupHonorsSourceAndMinBoundaries(t *testing.T) {
+	store, err := OpenMemory()
+	if err != nil {
+		t.Fatalf("OpenMemory: %v", err)
+	}
+	defer store.Close()
+
+	base := time.Date(2026, 8, 11, 12, 0, 0, 0, time.UTC)
+	entries := []explorer.Entry{
+		{InsertID: "source-old", Timestamp: base.Add(-time.Hour), TextPayload: "source old", Resource: explorer.Resource{Labels: map[string]string{
+			"node_id": "node-a", "container_id": "container-a",
+		}}},
+		{InsertID: "source-window", Timestamp: base.Add(-20 * time.Minute), TextPayload: "source window", Resource: explorer.Resource{Labels: map[string]string{
+			"node_id": "node-a", "container_id": "container-a",
+		}}},
+		{InsertID: "source-new", Timestamp: base.Add(-5 * time.Minute), TextPayload: "source new", Resource: explorer.Resource{Labels: map[string]string{
+			"node_id": "node-a", "container_id": "container-a",
+		}}},
+		{InsertID: "unreported-old", Timestamp: base.Add(-time.Hour), TextPayload: "unreported old", Resource: explorer.Resource{Labels: map[string]string{
+			"node_id": "node-b", "container_id": "container-b",
+		}}},
+	}
+	accepted, err := store.WriteBatch(context.Background(), explorer.EntryBatch{
+		AgentID: "agent-retention", BootID: "boot-retention", Sequence: 1, Entries: entries,
+		Containers: []explorer.ContainerInfo{{
+			ID: "container-a", NodeID: "node-a", Name: "api", OldestLogAt: base.Add(-30 * time.Minute),
+		}},
+	})
+	if err != nil || !accepted {
+		t.Fatalf("WriteBatch accepted=%v err=%v", accepted, err)
+	}
+
+	deleted, err := store.Cleanup(context.Background(), time.Time{}, 0, RetentionModeSource)
+	if err != nil || deleted != 1 {
+		t.Fatalf("source cleanup deleted=%d err=%v, want 1", deleted, err)
+	}
+	remaining, err := store.SearchEntries(context.Background(), explorer.SearchRequest{From: base.Add(-2 * time.Hour), To: base})
+	if err != nil {
+		t.Fatalf("SearchEntries after source cleanup: %v", err)
+	}
+	if len(remaining) != 3 {
+		t.Fatalf("source cleanup remaining=%d entries: %#v", len(remaining), remaining)
+	}
+
+	deleted, err = store.Cleanup(context.Background(), base.Add(-15*time.Minute), 0, RetentionModeMin)
+	if err != nil || deleted != 2 {
+		t.Fatalf("min cleanup deleted=%d err=%v, want 2", deleted, err)
+	}
+	remaining, err = store.SearchEntries(context.Background(), explorer.SearchRequest{From: base.Add(-2 * time.Hour), To: base})
+	if err != nil {
+		t.Fatalf("SearchEntries after min cleanup: %v", err)
+	}
+	if len(remaining) != 1 || remaining[0].InsertID != "source-new" {
+		t.Fatalf("min cleanup remaining=%#v, want source-new only", remaining)
 	}
 }
 

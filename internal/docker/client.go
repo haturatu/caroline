@@ -8,6 +8,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -21,13 +22,30 @@ type Client struct {
 }
 
 type Container struct {
-	ID      string            `json:"Id"`
-	Names   []string          `json:"Names"`
-	Image   string            `json:"Image"`
-	State   string            `json:"State"`
-	Status  string            `json:"Status"`
-	Created int64             `json:"Created"`
-	Labels  map[string]string `json:"Labels"`
+	ID             string            `json:"Id"`
+	Names          []string          `json:"Names"`
+	Image          string            `json:"Image"`
+	State          string            `json:"State"`
+	Status         string            `json:"Status"`
+	Created        int64             `json:"Created"`
+	Labels         map[string]string `json:"Labels"`
+	LoggingDriver  string            `json:"-"`
+	LoggingOptions map[string]string `json:"-"`
+	OldestLogAt    time.Time         `json:"-"`
+}
+
+// LogConfig is the Docker logging driver configuration returned by inspect.
+// The options are intentionally kept as strings because Docker drivers accept
+// driver-specific values such as "10m", "3", and boolean-like strings.
+type LogConfig struct {
+	Type   string            `json:"Type"`
+	Config map[string]string `json:"Config"`
+}
+
+type inspectResponse struct {
+	HostConfig struct {
+		LogConfig LogConfig `json:"LogConfig"`
+	} `json:"HostConfig"`
 }
 
 type Version struct {
@@ -107,6 +125,19 @@ func (c *Client) Check(ctx context.Context) (Version, error) {
 	var version Version
 	err := c.do(ctx, http.MethodGet, "/version", &version)
 	return version, err
+}
+
+// InspectContainer returns the logging driver configuration for a container.
+func (c *Client) InspectContainer(ctx context.Context, containerID string) (LogConfig, error) {
+	var response inspectResponse
+	endpoint := "/containers/" + url.PathEscape(containerID) + "/json"
+	if err := c.do(ctx, http.MethodGet, endpoint, &response); err != nil {
+		return LogConfig{}, err
+	}
+	if response.HostConfig.LogConfig.Config == nil {
+		response.HostConfig.LogConfig.Config = map[string]string{}
+	}
+	return response.HostConfig.LogConfig, nil
 }
 
 func HostDescription(host string) string {

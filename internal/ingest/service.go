@@ -13,8 +13,9 @@ import (
 )
 
 var (
-	ErrInvalidBatch  = errors.New("invalid agent log batch")
-	ErrAgentMismatch = errors.New("agent identity does not match the authenticated node")
+	ErrInvalidBatch     = errors.New("invalid agent log batch")
+	ErrAgentMismatch    = errors.New("agent identity does not match the authenticated node")
+	ErrInvalidHeartbeat = errors.New("invalid agent heartbeat")
 )
 
 type Service struct {
@@ -79,6 +80,31 @@ func (s *Service) Ingest(ctx context.Context, authenticated node.Node, batch age
 	return len(batch.Entries), accepted, nil
 }
 
-func (s *Service) Heartbeat(ctx context.Context, authenticated node.Node) error {
+func (s *Service) Heartbeat(ctx context.Context, authenticated node.Node, heartbeat agentproto.Heartbeat) error {
+	if heartbeat.ProtocolVersion != agentproto.ProtocolVersion || heartbeat.AgentID == "" {
+		return ErrInvalidHeartbeat
+	}
+	if heartbeat.AgentID != authenticated.ID {
+		return ErrAgentMismatch
+	}
+	if len(heartbeat.ContainerMetadata) > agentproto.MaxContainerMetadata {
+		return fmt.Errorf("%w: too many containers", ErrInvalidHeartbeat)
+	}
+	for index := range heartbeat.ContainerMetadata {
+		container := &heartbeat.ContainerMetadata[index]
+		if strings.TrimSpace(container.ID) == "" {
+			return fmt.Errorf("%w: container %d has no id", ErrInvalidHeartbeat, index)
+		}
+		if container.NodeID != "" && container.NodeID != authenticated.ID {
+			return ErrAgentMismatch
+		}
+		container.NodeID = authenticated.ID
+		container.NodeName = authenticated.Name
+	}
+	if len(heartbeat.ContainerMetadata) > 0 {
+		if _, err := s.store.WriteBatch(ctx, explorer.EntryBatch{Containers: heartbeat.ContainerMetadata}); err != nil {
+			return err
+		}
+	}
 	return s.nodes.Touch(ctx, authenticated.ID)
 }

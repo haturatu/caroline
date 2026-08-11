@@ -6,6 +6,8 @@ import (
 	"caroline/internal/explorer"
 )
 
+const MaxContainerMetadata = 500
+
 type RegisterRequest struct {
 	ProtocolVersion int      `json:"protocolVersion"`
 	AgentVersion    string   `json:"agentVersion"`
@@ -61,15 +63,16 @@ type LogBatch struct {
 }
 
 type Heartbeat struct {
-	ProtocolVersion int       `json:"protocolVersion"`
-	AgentID         string    `json:"agentId"`
-	BootID          string    `json:"bootId"`
-	AgentTime       time.Time `json:"agentTime"`
-	UptimeSeconds   int64     `json:"uptimeSeconds"`
-	Containers      int       `json:"containers"`
-	QueueDepth      int       `json:"queueDepth"`
-	SpoolBytes      int64     `json:"spoolBytes"`
-	DroppedEntries  uint64    `json:"droppedEntries"`
+	ProtocolVersion   int                      `json:"protocolVersion"`
+	AgentID           string                   `json:"agentId"`
+	BootID            string                   `json:"bootId"`
+	AgentTime         time.Time                `json:"agentTime"`
+	UptimeSeconds     int64                    `json:"uptimeSeconds"`
+	Containers        int                      `json:"containers"`
+	ContainerMetadata []explorer.ContainerInfo `json:"containerMetadata,omitempty"`
+	QueueDepth        int                      `json:"queueDepth"`
+	SpoolBytes        int64                    `json:"spoolBytes"`
+	DroppedEntries    uint64                   `json:"droppedEntries"`
 }
 
 type ControlEvent struct {
