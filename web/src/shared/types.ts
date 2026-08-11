@@ -26,6 +26,9 @@ export interface ContainerInfo {
 	nodeName?: string;
 	image: string;
 	status: string;
+	loggingDriver?: string;
+	loggingOptions?: Record<string, string>;
+	oldestLogAt?: string;
 	logCount: number;
 	errorCount: number;
 	warningCount: number;

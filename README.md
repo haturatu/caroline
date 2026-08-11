@@ -84,6 +84,7 @@ The server listens on <http://localhost:8080> by default.
 | `CAROLINE_HUB_KEY` | `$CAROLINE_DATA_DIR/hub.key` | Hub Ed25519 private key |
 | `CAROLINE_RETENTION` | `7d` | Log retention duration; `0`, `off`, or `disabled` turns it off |
 | `CAROLINE_MAX_STORAGE_SIZE` | `10GiB` | Logical retained log payload budget; `0`, `off`, or `disabled` turns it off |
+| `CAROLINE_RETENTION_MODE` | `independent` | `independent` uses Hub retention, `source` follows reported Docker log boundaries, and `min` applies the shorter of the two |
 | `ALERTS_FILE` | `alerts.json` | JSON file used to persist alert rules and state |
 | `CAROLINE_HUB_URL` | — | Agent: Hub base URL |
 | `CAROLINE_ENROLLMENT_TOKEN` | — | Agent: single-use registration token |
@@ -99,7 +100,7 @@ The server listens on <http://localhost:8080> by default.
 
 The Hub can run without a Docker socket. In Hub mode `/api/status` reports `mode: "hub"`; logs arrive from authenticated Agents. For a single-host deployment, run an Agent beside the Hub rather than granting the Hub access to the Docker socket.
 
-By default, the Hub deletes logs older than 7 days and also enforces a 10 GiB logical payload budget; whichever condition requires deletion is applied first. The size budget covers retained log payload columns, not the complete `caroline.db` file: SQLite indexes, row and page overhead, metadata tables, and WAL files are additional disk usage. Set either variable to `0`, `off`, or `disabled` only when an unbounded limit is intentional. Cleanup runs at startup and hourly. Agent offline spool limits are separate and default to 1 GiB or 24 hours.
+By default, the Hub deletes logs older than 7 days and also enforces a 10 GiB logical payload budget; whichever condition requires deletion is applied first. `CAROLINE_RETENTION_MODE=source` removes logs older than the oldest timestamp currently reported by each Agent/container, while `min` applies both that source boundary and the Hub duration. The Agent reads the boundary from Docker's current logs API; it does not convert `max-size` and `max-file` into an estimated duration. If Docker cannot report a boundary, Caroline keeps the Hub copy rather than deleting it speculatively. The size budget covers retained log payload columns, not the complete `caroline.db` file: SQLite indexes, row and page overhead, metadata tables, and WAL files are additional disk usage. Set either variable to `0`, `off`, or `disabled` only when an unbounded limit is intentional. Cleanup runs at startup and hourly. Agent offline spool limits are separate and default to 1 GiB or 24 hours.
 
 ### Registering an Agent
 

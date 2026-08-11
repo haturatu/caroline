@@ -75,6 +75,7 @@ go run ./cmd/caroline-agent
 | `CAROLINE_HUB_KEY` | `$CAROLINE_DATA_DIR/hub.key` | Hub の Ed25519 private key |
 | `CAROLINE_RETENTION` | `7d` | ログ保持期間。`0`、`off`、`disabled`で無効化 |
 | `CAROLINE_MAX_STORAGE_SIZE` | `10GiB` | 保持ログpayloadの論理上限。`0`、`off`、`disabled`で無効化 |
+| `CAROLINE_RETENTION_MODE` | `independent` | `independent`はHub基準、`source`はDocker側から報告されたログ境界、`min`は両者の短い方を使用 |
 | `ALERTS_FILE` | `alerts.json` | アラートのJSON保存先 |
 | `CAROLINE_HUB_URL` | — | Agent: Hub の URL |
 | `CAROLINE_ENROLLMENT_TOKEN` | — | Agent: 単回利用の登録 token |
@@ -90,7 +91,7 @@ go run ./cmd/caroline-agent
 
 Hub は Docker socket なしで起動できます。Hub mode の `/api/status` は `mode: "hub"` を返し、ログは認証済み Agent から到着します。単一ホストでも Hub に socket を渡さず、Hub と同じホスト上で Agent を起動する構成を推奨します。
 
-Hubはデフォルトで7日より古いログを削除し、保持payloadの論理合計も10GiBに制限します。どちらかの条件に到達した時点で古いログから削除します。この容量は`text_payload`、`json_payload`、labels、summaryなどのログpayloadを対象とするもので、`caroline.db`全体のファイルサイズ上限ではありません。SQLiteのindex、row/page overhead、metadata table、WALなどが追加で必要です。cleanupは起動時と1時間ごとに実行します。Agentの未送信spool（デフォルト1GiB / 24時間）はHubの保存制限とは別です。
+Hubはデフォルトで7日より古いログを削除し、保持payloadの論理合計も10GiBに制限します。`CAROLINE_RETENTION_MODE=source`ではAgent/コンテナごとに報告されたDockerログの最古時刻より前を削除し、`min`ではHubの保持期間とsource境界の両方を適用します。Agentは`max-size`と`max-file`から保持時間を推定せず、Docker APIから取得した現在の最古ログ時刻を送信します。Docker側の境界を取得できない場合は推測で削除せず、Hub側のログを保持します。この容量は`text_payload`、`json_payload`、labels、summaryなどのログpayloadを対象とするもので、`caroline.db`全体のファイルサイズ上限ではありません。SQLiteのindex、row/page overhead、metadata table、WALなどが追加で必要です。cleanupは起動時と1時間ごとに実行します。Agentの未送信spool（デフォルト1GiB / 24時間）はHubの保存制限とは別です。
 
 ### Agent の登録
 
