@@ -1,6 +1,7 @@
 import type { AppState } from "../shared/types";
 
 export const state: AppState = {
+	view: "explorer",
 	query: "",
 	draftQuery: "",
 	searchText: "",
@@ -30,5 +31,11 @@ export const state: AppState = {
 	navExpanded: false,
 	errors: { status: "", explorer: "" },
 	errorDetails: [],
-	alerts: { rules: [], loading: false, error: "" },
+	alerts: {
+		rules: [],
+		loading: false,
+		error: "",
+		search: "",
+		statusFilter: "all",
+	},
 };
