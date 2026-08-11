@@ -20,6 +20,11 @@ import (
 	"caroline/internal/storage/sqlite"
 )
 
+const (
+	defaultRetention       = 7 * 24 * time.Hour
+	defaultMaxStorageBytes = 10 * (1 << 30)
+)
+
 func main() {
 	port := os.Getenv("PORT")
 	dataDir := strings.TrimSpace(os.Getenv("CAROLINE_DATA_DIR"))
@@ -84,8 +89,8 @@ func main() {
 
 	server := httpserver.New(explorerService, nil, streamManager, alertEngine)
 	server.ConfigureHub(store, nodeService, ingestService, broker)
-	retention := parseDurationEnv("CAROLINE_RETENTION")
-	maxStorageBytes := parseByteSizeEnv("CAROLINE_MAX_STORAGE_SIZE")
+	retention := parseDurationEnv("CAROLINE_RETENTION", defaultRetention)
+	maxStorageBytes := parseByteSizeEnv("CAROLINE_MAX_STORAGE_SIZE", defaultMaxStorageBytes)
 	if retention > 0 || maxStorageBytes > 0 {
 		retentionContext, cancelRetention := context.WithCancel(context.Background())
 		defer cancelRetention()
@@ -128,39 +133,54 @@ func runRetention(ctx context.Context, store retentionStore, retention time.Dura
 	}
 }
 
-func parseDurationEnv(key string) time.Duration {
+func parseDurationEnv(key string, fallback time.Duration) time.Duration {
 	value := strings.TrimSpace(os.Getenv(key))
 	if value == "" {
+		return fallback
+	}
+	if strings.EqualFold(value, "0") || strings.EqualFold(value, "off") || strings.EqualFold(value, "disabled") {
 		return 0
 	}
 	parsed, err := time.ParseDuration(value)
 	if err != nil || parsed <= 0 {
-		log.Printf("ignoring invalid %s=%q; expected a positive duration", key, value)
-		return 0
+		log.Printf("ignoring invalid %s=%q; using default %s", key, value, fallback)
+		return fallback
 	}
 	return parsed
 }
 
-func parseByteSizeEnv(key string) int64 {
+func parseByteSizeEnv(key string, fallback int64) int64 {
 	value := strings.TrimSpace(os.Getenv(key))
 	if value == "" {
+		return fallback
+	}
+	if strings.EqualFold(value, "0") || strings.EqualFold(value, "off") || strings.EqualFold(value, "disabled") {
 		return 0
 	}
-	units := map[string]int64{"b": 1, "kb": 1 << 10, "mb": 1 << 20, "gb": 1 << 30, "tb": 1 << 40}
+	units := []struct {
+		suffix     string
+		multiplier int64
+	}{
+		{"tib", 1 << 40}, {"tb", 1 << 40},
+		{"gib", 1 << 30}, {"gb", 1 << 30},
+		{"mib", 1 << 20}, {"mb", 1 << 20},
+		{"kib", 1 << 10}, {"kb", 1 << 10},
+		{"b", 1},
+	}
 	lower := strings.ToLower(value)
 	multiplier := int64(1)
 	number := lower
-	for suffix, factor := range units {
-		if strings.HasSuffix(lower, suffix) {
-			multiplier = factor
-			number = strings.TrimSpace(strings.TrimSuffix(lower, suffix))
+	for _, unit := range units {
+		if strings.HasSuffix(lower, unit.suffix) {
+			multiplier = unit.multiplier
+			number = strings.TrimSpace(strings.TrimSuffix(lower, unit.suffix))
 			break
 		}
 	}
 	parsed, err := strconv.ParseInt(number, 10, 64)
 	if err != nil || parsed <= 0 || parsed > (1<<62)/multiplier {
-		log.Printf("ignoring invalid %s=%q; expected a positive byte size", key, value)
-		return 0
+		log.Printf("ignoring invalid %s=%q; using default %d bytes", key, value, fallback)
+		return fallback
 	}
 	return parsed * multiplier
 }

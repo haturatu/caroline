@@ -73,8 +73,8 @@ go run ./cmd/caroline-agent
 | `CAROLINE_DATA_DIR` | `.` | Hub の SQLite、Hub key、alert file の保存先 |
 | `CAROLINE_DB` | `$CAROLINE_DATA_DIR/caroline.db` | SQLite database のパス |
 | `CAROLINE_HUB_KEY` | `$CAROLINE_DATA_DIR/hub.key` | Hub の Ed25519 private key |
-| `CAROLINE_RETENTION` | 無効 | `7d` のようなログ保持期間 |
-| `CAROLINE_MAX_STORAGE_SIZE` | 無効 | `10GiB` のような保持ログ payload の論理上限 |
+| `CAROLINE_RETENTION` | `7d` | ログ保持期間。`0`、`off`、`disabled`で無効化 |
+| `CAROLINE_MAX_STORAGE_SIZE` | `10GiB` | 保持ログpayloadの論理上限。`0`、`off`、`disabled`で無効化 |
 | `ALERTS_FILE` | `alerts.json` | アラートのJSON保存先 |
 | `CAROLINE_HUB_URL` | — | Agent: Hub の URL |
 | `CAROLINE_ENROLLMENT_TOKEN` | — | Agent: 単回利用の登録 token |
@@ -89,6 +89,8 @@ go run ./cmd/caroline-agent
 `DOCKER_HOST` は `unix://`、`tcp://`、`http://`、`https://` の形式に対応しています。TCP / HTTP 接続を使う場合は、Docker Engine 側の認証・TLS・ネットワーク制御を別途設定してください。
 
 Hub は Docker socket なしで起動できます。Hub mode の `/api/status` は `mode: "hub"` を返し、ログは認証済み Agent から到着します。単一ホストでも Hub に socket を渡さず、Hub と同じホスト上で Agent を起動する構成を推奨します。
+
+Hubはデフォルトで7日より古いログを削除し、保持payloadの論理合計も10GiBに制限します。どちらかの条件に到達した時点で古いログから削除します。この容量は`text_payload`、`json_payload`、labels、summaryなどのログpayloadを対象とするもので、`caroline.db`全体のファイルサイズ上限ではありません。SQLiteのindex、row/page overhead、metadata table、WALなどが追加で必要です。cleanupは起動時と1時間ごとに実行します。Agentの未送信spool（デフォルト1GiB / 24時間）はHubの保存制限とは別です。
 
 ### Agent の登録
 
