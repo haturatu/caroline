@@ -49,6 +49,41 @@ func TestNormalizeSpec(t *testing.T) {
 	}
 }
 
+func TestEnginePatchRetainsHiddenWebhookWhenOmitted(t *testing.T) {
+	engine := NewEngine(nil, nil)
+	created, err := engine.Create(RuleSpec{
+		Name:            "Errors",
+		Query:           "severity >= ERROR",
+		Threshold:       1,
+		WindowSeconds:   60,
+		CooldownSeconds: 300,
+		WebhookURL:      "https://example.test/hooks/caroline",
+	})
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+
+	updated, err := engine.Patch(created.ID, RulePatchSpec{Name: stringPointer("Failures")})
+	if err != nil {
+		t.Fatalf("Patch returned error: %v", err)
+	}
+	if updated.Name != "Failures" || !updated.WebhookConfigured {
+		t.Fatalf("patch did not retain webhook configuration: %#v", updated)
+	}
+
+	removed, err := engine.Patch(created.ID, RulePatchSpec{WebhookURL: stringPointer("")})
+	if err != nil {
+		t.Fatalf("Patch remove webhook returned error: %v", err)
+	}
+	if removed.WebhookConfigured {
+		t.Fatalf("empty webhook patch did not remove configuration: %#v", removed)
+	}
+}
+
+func stringPointer(value string) *string {
+	return &value
+}
+
 func TestEngineFiresAndResolvesRule(t *testing.T) {
 	notifier := &recordingNotifier{}
 	engine := NewEngine(nil, notifier)
