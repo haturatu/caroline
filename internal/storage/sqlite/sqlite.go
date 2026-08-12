@@ -196,6 +196,7 @@ func ensureContainerColumns(conn *sqlite.Conn) error {
 		{name: "logging_driver", query: `ALTER TABLE containers ADD COLUMN logging_driver TEXT NOT NULL DEFAULT ''`},
 		{name: "logging_options_json", query: `ALTER TABLE containers ADD COLUMN logging_options_json TEXT`},
 		{name: "oldest_log_at_ns", query: `ALTER TABLE containers ADD COLUMN oldest_log_at_ns INTEGER NOT NULL DEFAULT 0`},
+		{name: "active", query: `ALTER TABLE containers ADD COLUMN active INTEGER NOT NULL DEFAULT 1`},
 	}
 	for _, migration := range migrations {
 		if !present[migration.name] {
@@ -204,7 +205,7 @@ func ensureContainerColumns(conn *sqlite.Conn) error {
 			}
 		}
 	}
-	return nil
+	return exec(conn, `CREATE INDEX IF NOT EXISTS containers_active_idx ON containers(active, node_name, container_name, container_id)`, nil)
 }
 
 func optionalTimeUnixNano(value time.Time) int64 {
@@ -276,41 +277,90 @@ INSERT OR IGNORE INTO logs(
 			}
 		}
 		for _, container := range batch.Containers {
-			labelsJSON, marshalErr := json.Marshal(container.Labels)
-			if marshalErr != nil {
-				return marshalErr
-			}
-			loggingOptionsJSON, marshalErr := json.Marshal(container.LoggingOptions)
-			if marshalErr != nil {
-				return marshalErr
-			}
-			err = exec(conn, `
-INSERT INTO containers(
-	    node_id, node_name, container_id, container_name, image, state, status,
-	    created_ns, labels_json, logging_driver, logging_options_json,
-	    oldest_log_at_ns, log_count, error_count, warning_count, last_seen_ns
-) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
-ON CONFLICT(node_id, container_id) DO UPDATE SET
-	    node_name=excluded.node_name, container_name=excluded.container_name,
-	    image=excluded.image, state=excluded.state, status=excluded.status,
-	    created_ns=excluded.created_ns, labels_json=excluded.labels_json,
-	    logging_driver=excluded.logging_driver, logging_options_json=excluded.logging_options_json,
-	    oldest_log_at_ns=CASE WHEN excluded.oldest_log_at_ns > 0
-	        THEN excluded.oldest_log_at_ns ELSE containers.oldest_log_at_ns END,
-	    last_seen_ns=excluded.last_seen_ns`, []any{
-				container.NodeID, container.NodeName, container.ID, container.Name,
-				container.Image, container.State, container.Status, container.Created.UnixNano(),
-				string(labelsJSON), container.LoggingDriver, string(loggingOptionsJSON),
-				optionalTimeUnixNano(container.OldestLogAt), container.LogCount,
-				container.ErrorCount, container.WarningCount, now,
-			})
-			if err != nil {
+			// Log batches may be replayed from the spool after a newer heartbeat.
+			// Preserve active state on conflict and keep previously unseen batch
+			// metadata inactive until an authoritative heartbeat confirms it.
+			if err = upsertContainer(conn, container, now, false, false); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
 	return accepted, err
+}
+
+// SyncContainers treats containers as the complete current snapshot for nodeID.
+// Historical rows remain available for retention and log metadata lookups, but
+// only rows present in this snapshot remain active in explorer selectors.
+func (s *Store) SyncContainers(ctx context.Context, nodeID string, containers []explorer.ContainerInfo) error {
+	if strings.TrimSpace(nodeID) == "" {
+		return errors.New("container snapshot has no node ID")
+	}
+	return s.withConn(ctx, func(conn *sqlite.Conn) (err error) {
+		end, err := sqlitex.ImmediateTransaction(conn)
+		if err != nil {
+			return err
+		}
+		defer end(&err)
+
+		if err = exec(conn, `UPDATE containers SET active = 0 WHERE node_id = ?1`, []any{nodeID}); err != nil {
+			return err
+		}
+		now := time.Now().UTC().UnixNano()
+		for index := range containers {
+			container := containers[index]
+			if strings.TrimSpace(container.ID) == "" {
+				return fmt.Errorf("container snapshot item %d has no ID", index)
+			}
+			if container.NodeID != "" && container.NodeID != nodeID {
+				return fmt.Errorf("container snapshot item %d belongs to node %q", index, container.NodeID)
+			}
+			container.NodeID = nodeID
+			if err = upsertContainer(conn, container, now, true, true); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func upsertContainer(conn *sqlite.Conn, container explorer.ContainerInfo, now int64, active, updateActive bool) error {
+	labelsJSON, err := json.Marshal(container.Labels)
+	if err != nil {
+		return err
+	}
+	loggingOptionsJSON, err := json.Marshal(container.LoggingOptions)
+	if err != nil {
+		return err
+	}
+	activeValue := 0
+	if active {
+		activeValue = 1
+	}
+	activeUpdate := ""
+	if updateActive {
+		activeUpdate = ", active=excluded.active"
+	}
+	return exec(conn, `
+INSERT INTO containers(
+    node_id, node_name, container_id, container_name, image, state, status,
+    created_ns, labels_json, logging_driver, logging_options_json,
+    oldest_log_at_ns, log_count, error_count, warning_count, last_seen_ns, active
+) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+ON CONFLICT(node_id, container_id) DO UPDATE SET
+    node_name=excluded.node_name, container_name=excluded.container_name,
+    image=excluded.image, state=excluded.state, status=excluded.status,
+    created_ns=excluded.created_ns, labels_json=excluded.labels_json,
+    logging_driver=excluded.logging_driver, logging_options_json=excluded.logging_options_json,
+    oldest_log_at_ns=CASE WHEN excluded.oldest_log_at_ns > 0
+        THEN excluded.oldest_log_at_ns ELSE containers.oldest_log_at_ns END,
+    last_seen_ns=excluded.last_seen_ns`+activeUpdate, []any{
+		container.NodeID, container.NodeName, container.ID, container.Name,
+		container.Image, container.State, container.Status, container.Created.UnixNano(),
+		string(labelsJSON), container.LoggingDriver, string(loggingOptionsJSON),
+		optionalTimeUnixNano(container.OldestLogAt), container.LogCount,
+		container.ErrorCount, container.WarningCount, now, activeValue,
+	})
 }
 
 func (s *Store) SearchEntries(ctx context.Context, request explorer.SearchRequest) ([]explorer.Entry, bool, error) {
@@ -472,7 +522,9 @@ func (s *Store) ListContainers(ctx context.Context) ([]explorer.ContainerInfo, e
 SELECT node_id, node_name, container_id, container_name, image, state, status,
        created_ns, labels_json, logging_driver, logging_options_json, oldest_log_at_ns,
        log_count, error_count, warning_count
-FROM containers ORDER BY node_name, container_name, container_id`, nil, func(stmt *sqlite.Stmt) error {
+FROM containers
+WHERE active = 1
+ORDER BY node_name, container_name, container_id`, nil, func(stmt *sqlite.Stmt) error {
 			info := explorer.ContainerInfo{
 				NodeID: stmt.ColumnText(0), NodeName: stmt.ColumnText(1), ID: stmt.ColumnText(2),
 				Name: stmt.ColumnText(3), Image: stmt.ColumnText(4), State: stmt.ColumnText(5),
@@ -657,7 +709,7 @@ CREATE TABLE IF NOT EXISTS containers (
     log_count INTEGER NOT NULL DEFAULT 0, error_count INTEGER NOT NULL DEFAULT 0,
 	warning_count INTEGER NOT NULL DEFAULT 0, last_seen_ns INTEGER NOT NULL,
 	logging_driver TEXT NOT NULL DEFAULT '', logging_options_json TEXT,
-	oldest_log_at_ns INTEGER NOT NULL DEFAULT 0,
+	oldest_log_at_ns INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1,
 	PRIMARY KEY (node_id, container_id)
 );
 CREATE INDEX IF NOT EXISTS containers_node_idx ON containers(node_id, container_name);

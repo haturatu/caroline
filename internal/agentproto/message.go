@@ -63,13 +63,15 @@ type LogBatch struct {
 }
 
 type Heartbeat struct {
-	ProtocolVersion   int                      `json:"protocolVersion"`
-	AgentID           string                   `json:"agentId"`
-	BootID            string                   `json:"bootId"`
-	AgentTime         time.Time                `json:"agentTime"`
-	UptimeSeconds     int64                    `json:"uptimeSeconds"`
-	Containers        int                      `json:"containers"`
-	ContainerMetadata []explorer.ContainerInfo `json:"containerMetadata,omitempty"`
+	ProtocolVersion int       `json:"protocolVersion"`
+	AgentID         string    `json:"agentId"`
+	BootID          string    `json:"bootId"`
+	AgentTime       time.Time `json:"agentTime"`
+	UptimeSeconds   int64     `json:"uptimeSeconds"`
+	Containers      int       `json:"containers"`
+	// ContainerMetadata is the complete snapshot of containers currently
+	// collected by this Agent, rather than a delta since the last heartbeat.
+	ContainerMetadata []explorer.ContainerInfo `json:"containerMetadata"`
 	QueueDepth        int                      `json:"queueDepth"`
 	SpoolBytes        int64                    `json:"spoolBytes"`
 	DroppedEntries    uint64                   `json:"droppedEntries"`

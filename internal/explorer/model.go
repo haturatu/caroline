@@ -114,8 +114,9 @@ type SearchRequest struct {
 }
 
 // EntryBatch is the unit of durable ingestion. The batch identity is used for
-// at-least-once deduplication at the Hub, while Containers keeps resource
-// metadata available even when a container has not emitted a log yet.
+// at-least-once deduplication at the Hub, while Containers keeps
+// non-authoritative resource metadata available even when a container has not
+// emitted a log yet. Heartbeats determine whether that metadata is active.
 type EntryBatch struct {
 	AgentID    string
 	BootID     string
@@ -128,6 +129,10 @@ type EntryBatch struct {
 // Implementations must make WriteBatch idempotent for the batch identity.
 type LogStore interface {
 	WriteBatch(context.Context, EntryBatch) (bool, error)
+	// SyncContainers reconciles the active containers for one node from an
+	// authoritative heartbeat snapshot. An empty snapshot marks every
+	// container on the node inactive without deleting its metadata.
+	SyncContainers(context.Context, string, []ContainerInfo) error
 	SearchEntries(context.Context, SearchRequest) (entries []Entry, truncated bool, err error)
 	ListContainers(context.Context) ([]ContainerInfo, error)
 }
