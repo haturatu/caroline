@@ -185,12 +185,14 @@ func (a *Agent) refreshContainers(ctx context.Context, source *docker.Client, qu
 		return err
 	}
 	infos := make([]explorer.ContainerInfo, 0, len(containers))
+	running := make(map[string]struct{}, len(containers))
 	now := time.Now().UTC()
 	for index := range containers {
 		container := &containers[index]
 		if !docker.ShouldCollect(*container) {
 			continue
 		}
+		running[container.ID] = struct{}{}
 		logConfig, inspectErr := source.InspectContainer(ctx, container.ID)
 		if inspectErr != nil {
 			log.Printf("agent Docker inspect failed for %s: %v", explorer.ContainerName(*container), inspectErr)
@@ -213,9 +215,18 @@ func (a *Agent) refreshContainers(ctx context.Context, source *docker.Client, qu
 		container.OldestLogAt = state.oldestLogAt
 		infos = append(infos, explorer.ToContainerInfoForNode(*container, a.identity.AgentID, a.identity.Hostname))
 	}
+	pruneContainerRetention(a.containerRetention, running)
 	a.containerInfos = append(a.containerInfos[:0], infos...)
 	queue.SetContainers(infos)
 	return nil
+}
+
+func pruneContainerRetention(retention map[string]containerRetentionState, running map[string]struct{}) {
+	for id := range retention {
+		if _, ok := running[id]; !ok {
+			delete(retention, id)
+		}
+	}
 }
 
 func (a *Agent) sendHeartbeat(ctx context.Context, queue *BatchQueue) error {
@@ -223,7 +234,7 @@ func (a *Agent) sendHeartbeat(ctx context.Context, queue *BatchQueue) error {
 	if err != nil {
 		return err
 	}
-	containerMetadata := append([]explorer.ContainerInfo(nil), a.containerInfos...)
+	containerMetadata := append([]explorer.ContainerInfo{}, a.containerInfos...)
 	return a.sender.Heartbeat(ctx, agentproto.Heartbeat{
 		ProtocolVersion: agentproto.ProtocolVersion, AgentID: a.identity.AgentID, BootID: a.bootID,
 		AgentTime: time.Now().UTC(), UptimeSeconds: int64(time.Since(a.startedAt).Seconds()),
