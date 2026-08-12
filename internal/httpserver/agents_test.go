@@ -133,6 +133,28 @@ func TestAgentRegistrationAndCompressedIngest(t *testing.T) {
 	if err != nil || len(containers) != 1 || containers[0].LoggingDriver != "local" || containers[0].LoggingOptions["max-file"] != "3" || containers[0].OldestLogAt.IsZero() {
 		t.Fatalf("unexpected heartbeat metadata: %#v err=%v", containers, err)
 	}
+	emptyHeartbeatAt := heartbeatAt.Add(time.Second)
+	emptyHeartbeatBody, _ := json.Marshal(agentproto.Heartbeat{
+		ProtocolVersion: agentproto.ProtocolVersion, AgentID: registerResponse.AgentID, BootID: "boot-1",
+		AgentTime: emptyHeartbeatAt, ContainerMetadata: []explorer.ContainerInfo{},
+	})
+	if !bytes.Contains(emptyHeartbeatBody, []byte(`"containerMetadata":[]`)) {
+		t.Fatalf("empty heartbeat does not carry an explicit snapshot: %s", emptyHeartbeatBody)
+	}
+	emptyHeartbeatRequest := httptest.NewRequest(http.MethodPost, "/api/v1/agent/heartbeat", bytes.NewReader(emptyHeartbeatBody))
+	emptyHeartbeatRequest.Header.Set("Content-Type", "application/json")
+	if err := agentproto.ApplyRequestHeaders(emptyHeartbeatRequest, agentPrivate, emptyHeartbeatBody, emptyHeartbeatAt); err != nil {
+		t.Fatalf("ApplyRequestHeaders empty heartbeat: %v", err)
+	}
+	emptyHeartbeatRecorder := httptest.NewRecorder()
+	server.Handler().ServeHTTP(emptyHeartbeatRecorder, emptyHeartbeatRequest)
+	if emptyHeartbeatRecorder.Code != http.StatusOK {
+		t.Fatalf("empty heartbeat status=%d body=%s", emptyHeartbeatRecorder.Code, emptyHeartbeatRecorder.Body.String())
+	}
+	containers, err = store.ListContainers(context.Background())
+	if err != nil || len(containers) != 0 {
+		t.Fatalf("containers after empty heartbeat: %#v err=%v", containers, err)
+	}
 	entries, _, err := store.SearchEntries(context.Background(), explorer.SearchRequest{From: now.Add(-time.Minute), To: now.Add(time.Minute)})
 	if err != nil || len(entries) != 1 || entries[0].Resource.Labels["node_name"] != "server-a" {
 		t.Fatalf("unexpected stored entries: %#v err=%v", entries, err)

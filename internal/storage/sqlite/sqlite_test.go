@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -46,6 +47,13 @@ func TestStoreWritesAndDeduplicatesBatch(t *testing.T) {
 	if err != nil || accepted {
 		t.Fatalf("duplicate WriteBatch accepted=%v err=%v", accepted, err)
 	}
+	containers, err := store.ListContainers(context.Background())
+	if err != nil || len(containers) != 0 {
+		t.Fatalf("log batch metadata unexpectedly became active: %#v err=%v", containers, err)
+	}
+	if err := store.SyncContainers(context.Background(), "node-1", batch.Containers); err != nil {
+		t.Fatalf("SyncContainers: %v", err)
+	}
 
 	entries, _, err := store.SearchEntries(context.Background(), explorer.SearchRequest{From: when.Add(-time.Minute), To: when.Add(time.Minute), Sort: "desc"})
 	if err != nil {
@@ -54,7 +62,7 @@ func TestStoreWritesAndDeduplicatesBatch(t *testing.T) {
 	if len(entries) != 1 || entries[0].Resource.Labels["node_name"] != "server-a" {
 		t.Fatalf("unexpected entries: %#v", entries)
 	}
-	containers, err := store.ListContainers(context.Background())
+	containers, err = store.ListContainers(context.Background())
 	if err != nil || len(containers) != 1 || containers[0].NodeID != "node-1" {
 		t.Fatalf("unexpected containers: %#v err=%v", containers, err)
 	}
@@ -90,16 +98,132 @@ PRIMARY KEY (node_id, container_id)
 		t.Fatalf("Open migrated store: %v", err)
 	}
 	defer store.Close()
-	_, err = store.WriteBatch(context.Background(), explorer.EntryBatch{Containers: []explorer.ContainerInfo{{
+	err = store.SyncContainers(context.Background(), "node-1", []explorer.ContainerInfo{{
 		ID: "container-1", NodeID: "node-1", Name: "api", LoggingDriver: "json-file",
 		LoggingOptions: map[string]string{"max-size": "10m"}, OldestLogAt: time.Unix(1700000000, 0).UTC(),
-	}}})
+	}})
 	if err != nil {
-		t.Fatalf("WriteBatch after migration: %v", err)
+		t.Fatalf("SyncContainers after migration: %v", err)
 	}
 	containers, err := store.ListContainers(context.Background())
 	if err != nil || len(containers) != 1 || containers[0].LoggingDriver != "json-file" {
 		t.Fatalf("migrated metadata = %#v err=%v", containers, err)
+	}
+}
+
+func TestStoreSyncContainersReconcilesNodeSnapshots(t *testing.T) {
+	store, err := OpenMemory()
+	if err != nil {
+		t.Fatalf("OpenMemory: %v", err)
+	}
+	defer store.Close()
+
+	nodeA := func(id, name string) explorer.ContainerInfo {
+		return explorer.ContainerInfo{ID: id, Name: name, NodeID: "node-a", NodeName: "server-a", State: "running"}
+	}
+	nodeB := explorer.ContainerInfo{ID: "b-only", Name: "worker", NodeID: "node-b", NodeName: "server-b", State: "running"}
+	if err := store.SyncContainers(context.Background(), "node-a", []explorer.ContainerInfo{
+		nodeA("a-old", "api"), nodeA("a-stable", "worker"),
+	}); err != nil {
+		t.Fatalf("initial node-a snapshot: %v", err)
+	}
+	if err := store.SyncContainers(context.Background(), "node-b", []explorer.ContainerInfo{nodeB}); err != nil {
+		t.Fatalf("initial node-b snapshot: %v", err)
+	}
+	assertActiveContainerIDs(t, store, "node-a/a-old", "node-a/a-stable", "node-b/b-only")
+
+	if err := store.SyncContainers(context.Background(), "node-a", []explorer.ContainerInfo{
+		nodeA("a-stable", "worker"), nodeA("a-new", "api"),
+	}); err != nil {
+		t.Fatalf("replacement node-a snapshot: %v", err)
+	}
+	assertActiveContainerIDs(t, store, "node-a/a-new", "node-a/a-stable", "node-b/b-only")
+	assertContainerActiveStates(t, store, map[string]bool{
+		"node-a/a-old": false, "node-a/a-stable": true, "node-a/a-new": true, "node-b/b-only": true,
+	})
+
+	if err := store.SyncContainers(context.Background(), "node-a", nil); err != nil {
+		t.Fatalf("empty node-a snapshot: %v", err)
+	}
+	assertActiveContainerIDs(t, store, "node-b/b-only")
+	assertContainerActiveStates(t, store, map[string]bool{
+		"node-a/a-old": false, "node-a/a-stable": false, "node-a/a-new": false, "node-b/b-only": true,
+	})
+}
+
+func TestStoreSpoolReplayCannotReactivateRecreatedContainer(t *testing.T) {
+	store, err := OpenMemory()
+	if err != nil {
+		t.Fatalf("OpenMemory: %v", err)
+	}
+	defer store.Close()
+
+	oldContainer := explorer.ContainerInfo{ID: "old-id", Name: "caroline", NodeID: "node-a", NodeName: "server-a", State: "running"}
+	newContainer := explorer.ContainerInfo{ID: "new-id", Name: "caroline", NodeID: "node-a", NodeName: "server-a", State: "running"}
+	if err := store.SyncContainers(context.Background(), "node-a", []explorer.ContainerInfo{oldContainer}); err != nil {
+		t.Fatalf("old snapshot: %v", err)
+	}
+	if err := store.SyncContainers(context.Background(), "node-a", []explorer.ContainerInfo{newContainer}); err != nil {
+		t.Fatalf("recreated snapshot: %v", err)
+	}
+	assertActiveContainerIDs(t, store, "node-a/new-id")
+
+	when := time.Date(2026, 8, 12, 10, 0, 0, 0, time.UTC)
+	delayedContainer := explorer.ContainerInfo{ID: "delayed-old-id", Name: "caroline", NodeID: "node-a", NodeName: "server-a", State: "exited"}
+	accepted, err := store.WriteBatch(context.Background(), explorer.EntryBatch{
+		AgentID: "node-a", BootID: "old-boot", Sequence: 1,
+		Entries: []explorer.Entry{{
+			InsertID: "old-log", Timestamp: when, TextPayload: "historical log",
+			Resource: explorer.Resource{Labels: map[string]string{
+				"node_id": "node-a", "node_name": "server-a", "container_id": "old-id", "container_name": "caroline",
+			}},
+		}},
+		Containers: []explorer.ContainerInfo{oldContainer, delayedContainer},
+	})
+	if err != nil || !accepted {
+		t.Fatalf("spool replay accepted=%v err=%v", accepted, err)
+	}
+	assertActiveContainerIDs(t, store, "node-a/new-id")
+	assertContainerActiveStates(t, store, map[string]bool{
+		"node-a/old-id": false, "node-a/delayed-old-id": false, "node-a/new-id": true,
+	})
+	entries, _, err := store.SearchEntries(context.Background(), explorer.SearchRequest{
+		From: when.Add(-time.Minute), To: when.Add(time.Minute),
+	})
+	if err != nil || len(entries) != 1 || entries[0].InsertID != "old-log" {
+		t.Fatalf("historical logs = %#v err=%v, want old-log", entries, err)
+	}
+}
+
+func assertActiveContainerIDs(t *testing.T, store *Store, want ...string) {
+	t.Helper()
+	containers, err := store.ListContainers(context.Background())
+	if err != nil {
+		t.Fatalf("ListContainers: %v", err)
+	}
+	got := make([]string, 0, len(containers))
+	for _, container := range containers {
+		got = append(got, container.NodeID+"/"+container.ID)
+	}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("active containers = %v, want %v", got, want)
+	}
+}
+
+func assertContainerActiveStates(t *testing.T, store *Store, want map[string]bool) {
+	t.Helper()
+	got := make(map[string]bool)
+	err := store.withConn(context.Background(), func(conn *zombiesqlite.Conn) error {
+		return execRows(conn, `SELECT node_id, container_id, active FROM containers`, nil, func(stmt *zombiesqlite.Stmt) error {
+			got[stmt.ColumnText(0)+"/"+stmt.ColumnText(1)] = stmt.ColumnInt(2) == 1
+			return nil
+		})
+	})
+	if err != nil {
+		t.Fatalf("read container active states: %v", err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("container active states = %v, want %v", got, want)
 	}
 }
 

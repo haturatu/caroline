@@ -101,10 +101,8 @@ func (s *Service) Heartbeat(ctx context.Context, authenticated node.Node, heartb
 		container.NodeID = authenticated.ID
 		container.NodeName = authenticated.Name
 	}
-	if len(heartbeat.ContainerMetadata) > 0 {
-		if _, err := s.store.WriteBatch(ctx, explorer.EntryBatch{Containers: heartbeat.ContainerMetadata}); err != nil {
-			return err
-		}
+	if err := s.store.SyncContainers(ctx, authenticated.ID, heartbeat.ContainerMetadata); err != nil {
+		return err
 	}
 	return s.nodes.Touch(ctx, authenticated.ID)
 }
