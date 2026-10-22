@@ -315,10 +315,8 @@
 		display: grid;
 		grid-column: auto;
 		grid-template-columns: minmax(0, 1fr) 22px;
-		grid-template-areas:
-			"time severity"
-			"resource open"
-			"summary open";
+		/* biome-ignore lint/correctness/noInvalidGridAreas: The two-column template is rectangular; open spans the final two rows. */
+		grid-template-areas: "time severity" "resource open" "summary open";
 		gap: 5px 10px;
 		min-inline-size: 0;
 		padding: 9px 12px;
