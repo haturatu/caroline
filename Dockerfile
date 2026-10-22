@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1
+
 FROM node:22-alpine AS web-build
 
 WORKDIR /web
@@ -21,8 +23,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /caroline ./
 FROM alpine:3.22 AS hub
 
 WORKDIR /app
-COPY --from=build /caroline /app/caroline
-COPY --from=web-build /web/static /app/static
+COPY --link --from=build /caroline /app/caroline
+COPY --link --from=web-build /web/static /app/static
 EXPOSE 8080
 ENV PORT=8080
 ENTRYPOINT ["/app/caroline"]
@@ -30,7 +32,7 @@ ENTRYPOINT ["/app/caroline"]
 FROM alpine:3.22 AS agent
 
 WORKDIR /app
-COPY --from=build /caroline-agent /app/caroline-agent
+COPY --link --from=build /caroline-agent /app/caroline-agent
 ENV CAROLINE_AGENT_STATE_DIR=/var/lib/caroline-agent
 VOLUME ["/var/lib/caroline-agent"]
 ENTRYPOINT ["/app/caroline-agent"]
