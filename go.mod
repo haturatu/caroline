@@ -1,6 +1,6 @@
 module caroline
 
-go 1.26
+go 1.27.3
 
 require zombiezen.com/go/sqlite v1.4.2
 

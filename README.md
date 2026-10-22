@@ -73,7 +73,7 @@ docker compose down
 
 Requirements:
 
-- Go 1.26 or later
+- Go 1.27.3 or later
 - Node.js 22 or later and npm
 - An accessible Docker Engine (only required by `caroline-agent`)
 
