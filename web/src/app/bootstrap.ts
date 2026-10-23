@@ -1087,7 +1087,9 @@ function setupEvents(): void {
 		const expand = target.closest<HTMLButtonElement>("[data-expand-entry]");
 		if (expand?.dataset.expandEntry) {
 			const id = expand.dataset.expandEntry;
-			state.expandedEntries = state.expandedEntries.includes(id)
+			state.expandedEntries = state.expandedEntries.includes("*")
+				? state.entries.filter(entry => entry.insertId !== id).map(entry => entry.insertId)
+				: state.expandedEntries.includes(id)
 				? state.expandedEntries.filter((item) => item !== id)
 				: [...state.expandedEntries, id];
 			syncURL();
@@ -1258,6 +1260,7 @@ function setupEvents(): void {
 	$("#timelineZoomIn").addEventListener("click", () => shiftTimelineRange(-1));
 	window.addEventListener("popstate", () => {
 		hydrateURL();
+		if (!state.selectedId) setDrawerOpen(false);
 		renderAppView();
 		syncMobileFieldsOverlay();
 		void loadExplorer();

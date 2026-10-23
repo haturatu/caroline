@@ -487,7 +487,7 @@ export function setupWorkspace(nextHooks: Hooks): void {
 	$("#downloadButton").onclick = download;
 	$("#fieldSearch").oninput = renderFields;
 	$("#expandAllButton").onclick = () => {
-		state.expandedEntries = state.entries.map((entry) => entry.insertId);
+		state.expandedEntries = ["*"];
 		commit(false);
 	};
 	$("#collapseAllButton").onclick = () => {

@@ -126,11 +126,12 @@ func TestFieldActionQuotedValues(t *testing.T) {
 }
 
 func TestGroupedExplorerFilters(t *testing.T) {
-	entry := Entry{Severity: "INFO", Stream: "stdout", JSONPayload: map[string]any{"message": "value (AND OR)"}}
+	entry := Entry{InsertID: "test-entry", Severity: "INFO", Stream: "stdout", JSONPayload: map[string]any{"message": "value (AND OR)"}}
 	for _, test := range []struct {
 		query string
 		want  bool
 	}{
+		{`insertId = "test-entry" AND severity >= DEFAULT`, true},
 		{`(severity = INFO OR severity = ERROR) AND stream = "stderr"`, false},
 		{`stream = "stderr" AND (severity = INFO OR severity = ERROR)`, false},
 		{`stream = "stdout" AND (severity = INFO OR severity = ERROR)`, true},

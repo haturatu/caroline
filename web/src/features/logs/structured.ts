@@ -31,7 +31,7 @@ export function structuredEntry(entry: ExplorerEntry): string {
 		}
 		const display = displayValue(value);
 		const filterable =
-			/^(severity|timestamp|stream|logName|resource\.type|resource\.labels\.[\w.-]+|labels\.[\w.-]+|jsonPayload\.[\w.-]+|textPayload)$/.test(
+			/^(insertId|severity|timestamp|stream|logName|resource\.type|resource\.labels\.[\w.-]+|labels\.[\w.-]+|jsonPayload\.[\w.-]+|textPayload)$/.test(
 				path,
 			) && value !== null;
 		return `<div class="log-tree-value"><code title="${esc(path)}">${esc(path.split(".").pop() || path)}</code><span class="log-tree-text">${highlighted(display)}</span><details class="field-actions"><summary aria-label="${esc(path)}">⋮</summary><div>${filterable ? `<button type="button" data-log-action="include" data-path="${esc(path)}" data-value="${esc(display)}">${esc(w("include"))}</button><button type="button" data-log-action="exclude" data-path="${esc(path)}" data-value="${esc(display)}">${esc(w("exclude"))}</button>` : ""}<button type="button" data-log-action="copy" data-value="${esc(display)}">${esc(w("copyValue"))}</button><button type="button" data-log-action="summary" data-path="${esc(path)}">${esc(w(state.summaryFields.includes(path) ? "removeSummary" : "addSummary"))}</button></div></details></div>`;

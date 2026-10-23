@@ -102,6 +102,8 @@ func textQueryFieldValue(value string) queryFieldValue {
 func queryValue(entry Entry, field string) []queryFieldValue {
 	field = strings.TrimSpace(field)
 	switch field {
+	case "insertId":
+		return []queryFieldValue{textQueryFieldValue(entry.InsertID)}
 	case "severity":
 		return []queryFieldValue{textQueryFieldValue(entry.Severity)}
 	case "textPayload", "message":

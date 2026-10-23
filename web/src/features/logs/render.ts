@@ -52,7 +52,9 @@ export function renderEntries(): void {
 		.map((entry) => {
 			const containerName =
 				entry.resource.labels.container_name || t("common.unknownContainer");
-			const expanded = state.expandedEntries.includes(entry.insertId);
+			const expanded =
+				state.expandedEntries.includes("*") ||
+				state.expandedEntries.includes(entry.insertId);
 			return `<div class="entry-record"><div class="entry-row-group"><button class="entry-expand icon-button" type="button" data-expand-entry="${escapeHTML(entry.insertId)}" aria-expanded="${expanded}" aria-label="${escapeHTML(w(expanded ? "collapseEntry" : "expandEntry"))}">${expanded ? "▾" : "▸"}</button><button class="entry-row ${state.selectedId === entry.insertId ? "selected" : ""}" type="button" data-entry-id="${escapeHTML(entry.insertId)}" aria-label="${escapeHTML(`${entry.severity} log from ${containerName}: ${entrySummary(entry)}`)}"><time class="entry-time" datetime="${escapeHTML(entry.timestamp)}">${escapeHTML(formatTime(entry.timestamp))}</time><span class="entry-severity ${severityClass(entry.severity)}">${escapeHTML(entry.severity)}</span><span class="entry-resource"><span class="resource-name">${escapeHTML(containerName)}</span><span class="resource-meta">${escapeHTML(entry.stream)} · ${escapeHTML(entry.resource.type)}</span></span><span class="entry-summary" title="${escapeHTML(entrySummary(entry))}">${highlighted(entrySummary(entry))}</span><span class="entry-open"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg></span></button></div>${expanded ? `<section class="inline-entry" data-inline-entry="${escapeHTML(entry.insertId)}" data-render-settings="${escapeHTML(inlineSettings)}">${entryTools(entry, true)}${structuredEntry(entry)}<pre class="detail-code entry-raw" hidden>${escapeHTML(JSON.stringify(entry, null, 2))}</pre></section>` : ""}</div>`;
 		})
 		.join("");
