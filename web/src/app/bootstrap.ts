@@ -1,3 +1,7 @@
+import { parseZonedInput } from "../features/workspace/time";
+import { setupWorkspace, recordQuery } from "../features/workspace/controller";
+import { w } from "../features/workspace/messages";
+import { handleLogAction } from "../features/logs/structured";
 import { fetchExplorer, fetchStatus } from "../features/explorer/api";
 import {
 	createAlert,
@@ -40,7 +44,11 @@ import { setRenderActions } from "../features/explorer/actions";
 import { renderFilters } from "../features/filters/render";
 import { renderEntries } from "../features/logs/render";
 import { renderDetail } from "../features/logs/detail";
-import { createEnrollment, fetchNodes, revokeNode } from "../features/nodes/api";
+import {
+	createEnrollment,
+	fetchNodes,
+	revokeNode,
+} from "../features/nodes/api";
 import {
 	renderEnrollmentToken,
 	renderNodes,
@@ -53,6 +61,7 @@ import type { AlertRule, Theme } from "../shared/types";
 let statusTimer: number | null = null;
 let searchTimer: number | null = null;
 let reloadRequested = false;
+let explorerAbort: AbortController | null = null;
 let detailReturnFocusId: string | null = null;
 let navReturnFocus: HTMLElement | null = null;
 let fieldsReturnFocus: HTMLElement | null = null;
@@ -280,9 +289,7 @@ function toggleMobileNav(): void {
 	document.body.classList.remove("fields-open");
 	$("#mobileNavBackdrop").removeAttribute("hidden");
 	$("#consoleMenuButton").setAttribute("aria-expanded", "true");
-	requestAnimationFrame(() =>
-		$(".side-nav-link.active")?.focus(),
-	);
+	requestAnimationFrame(() => $(".side-nav-link.active")?.focus());
 }
 
 function setActiveNavigation(id: string): void {
@@ -383,12 +390,13 @@ async function loadExplorer(append = false): Promise<void> {
 	}
 	state.loading = true;
 	state.errorDetails = [];
+	explorerAbort = new AbortController();
 	const requestedPageToken = state.pageToken;
 	const showInitialLoading = !append && !state.response;
 	if (showInitialLoading) scheduleInitialLoading();
 	renderResultsMeta();
 	try {
-		const response = await fetchExplorer();
+		const response = await fetchExplorer(explorerAbort.signal);
 		state.response = response;
 		state.lastUpdated = response.generatedAt;
 		state.containers = response.containers || [];
@@ -413,6 +421,7 @@ async function loadExplorer(append = false): Promise<void> {
 			state.selectedId &&
 			!state.entries.some((entry) => entry.insertId === state.selectedId)
 		) {
+			toast(w("entryMissing"));
 			state.selectedId = null;
 			detailReturnFocusId = null;
 			setDrawerOpen(false);
@@ -420,7 +429,9 @@ async function loadExplorer(append = false): Promise<void> {
 		await settleInitialLoading();
 		state.loading = false;
 		clearError("explorer");
+		if (!append && !reloadRequested) recordQuery();
 		renderAll();
+		if (state.selectedId) openDetail(state.selectedId);
 		state.errorDetails = response.errors || [];
 		if (state.errorDetails.length)
 			showError(t("errors.someContainers"), "explorer");
@@ -431,6 +442,11 @@ async function loadExplorer(append = false): Promise<void> {
 			);
 		}
 	} catch (error) {
+		if (error instanceof DOMException && error.name === "AbortError") {
+			state.loading = false;
+			renderAll();
+			return;
+		}
 		await settleInitialLoading();
 		if (!append && !state.response) {
 			state.entries = [];
@@ -469,7 +485,7 @@ function runQuery(): void {
 	if (searchTimer !== null) window.clearTimeout(searchTimer);
 	state.pageToken = "";
 	closeQuerySuggestions();
-	syncURL();
+	syncURL("push");
 	void loadExplorer();
 }
 
@@ -487,6 +503,8 @@ function scheduleSearch(value: string): void {
 function resetFilters(): void {
 	state.query = state.draftQuery = "";
 	state.searchText = "";
+	state.logName = "";
+	state.resourceType = "";
 	state.node = "";
 	state.container = "";
 	state.stream = "";
@@ -498,7 +516,7 @@ function resetFilters(): void {
 	state.pageToken = "";
 	if (searchTimer !== null) window.clearTimeout(searchTimer);
 	clearError();
-	syncURL();
+	syncURL("push");
 	renderAll();
 	void loadExplorer();
 }
@@ -508,7 +526,7 @@ function setOneHourRange(): void {
 	state.timeFrom = "";
 	state.timeTo = "";
 	state.pageToken = "";
-	syncURL();
+	syncURL("push");
 	renderAll();
 	void loadExplorer();
 }
@@ -523,7 +541,7 @@ function shiftTimelineRange(step: number): void {
 	state.timeTo = "";
 	state.pageToken = "";
 	($("#rangeFilter") as HTMLSelectElement).value = state.duration;
-	syncURL();
+	syncURL("push");
 	void loadExplorer();
 }
 
@@ -570,10 +588,17 @@ function setAlertDialogOpen(open: boolean, rule?: AlertRule): void {
 			)
 				.map(([key, value]) => `${key}=${value}`)
 				.join(", ");
-			($("#alertThresholdInput") as HTMLInputElement).value = String(rule.threshold);
-			($("#alertWindowInput") as HTMLInputElement).value = String(rule.windowSeconds);
-			($("#alertCooldownInput") as HTMLInputElement).value = String(rule.cooldownSeconds);
-			($("#alertRunbookInput") as HTMLInputElement).value = rule.runbookUrl || "";
+			($("#alertThresholdInput") as HTMLInputElement).value = String(
+				rule.threshold,
+			);
+			($("#alertWindowInput") as HTMLInputElement).value = String(
+				rule.windowSeconds,
+			);
+			($("#alertCooldownInput") as HTMLInputElement).value = String(
+				rule.cooldownSeconds,
+			);
+			($("#alertRunbookInput") as HTMLInputElement).value =
+				rule.runbookUrl || "";
 			// The API intentionally does not return the webhook secret. A blank field
 			// therefore means "keep" while the explicit checkbox removes it.
 			($("#alertWebhookInput") as HTMLInputElement).value = "";
@@ -629,12 +654,18 @@ function setAppView(view: "explorer" | "alerts" | "nodes"): void {
 	renderAppView();
 	if (view === "alerts") {
 		void loadAlerts();
-		requestAnimationFrame(() => $("#alertsPageTitle").focus({ preventScroll: true }));
+		requestAnimationFrame(() =>
+			$("#alertsPageTitle").focus({ preventScroll: true }),
+		);
 	} else if (view === "nodes") {
 		void loadNodes();
-		requestAnimationFrame(() => $("#nodesPageTitle").focus({ preventScroll: true }));
+		requestAnimationFrame(() =>
+			$("#nodesPageTitle").focus({ preventScroll: true }),
+		);
 	} else {
-		requestAnimationFrame(() => $("#query-title").focus({ preventScroll: true }));
+		requestAnimationFrame(() =>
+			$("#query-title").focus({ preventScroll: true }),
+		);
 	}
 }
 
@@ -729,8 +760,7 @@ async function submitAlert(): Promise<void> {
 }
 
 function fromDateTimeLocal(value: string): string {
-	const date = new Date(value);
-	return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+	return parseZonedInput(value, state.timeZone);
 }
 
 function initializeCustomRange(): void {
@@ -752,9 +782,11 @@ function applyCustomRange(): void {
 	}
 	state.timeFrom = from;
 	state.timeTo = to;
+	state.live = false;
+	closeTail();
 	state.pageToken = "";
 	clearError("explorer");
-	syncURL();
+	syncURL("push");
 	renderAll();
 	void loadExplorer();
 }
@@ -764,7 +796,7 @@ function clearCustomRange(): void {
 	state.timeTo = "";
 	state.pageToken = "";
 	clearError("explorer");
-	syncURL();
+	syncURL("push");
 	renderAll();
 	void loadExplorer();
 }
@@ -774,6 +806,7 @@ function openDetail(entryId: string): void {
 	const drawerWasClosed = !drawer.open;
 	detailReturnFocusId = entryId;
 	state.selectedId = entryId;
+	syncURL();
 	setDrawerOpen(true);
 	$$<HTMLElement>(".entry-row").forEach((row) => {
 		row.classList.toggle(
@@ -792,6 +825,7 @@ function openDetail(entryId: string): void {
 function closeDetail(): void {
 	setDrawerOpen(false);
 	state.selectedId = null;
+	syncURL();
 	renderDetail();
 	$$<HTMLElement>(".entry-row").forEach((row) => {
 		row.classList.remove("selected");
@@ -807,23 +841,49 @@ function closeDetail(): void {
 function setupRenderActions(): void {
 	setRenderActions({
 		onToast: toast,
-		onFieldFilter: (field, value) => {
-			const clause = `${field} = "${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+		onFieldFilter: (field, value, exclude = false) => {
+			closeDetail();
+			const clause = `${field} ${exclude ? "!=" : "="} ${JSON.stringify(value)}`;
 			state.query = state.query.trim()
-				? `${state.query.trim()} AND ${clause}`
+				? `(${state.query.trim()}) AND ${clause}`
 				: clause;
 			state.draftQuery = state.query;
 			state.showQuery = true;
 			state.pageToken = "";
-			syncURL();
+			syncURL("push");
 			renderFilters();
 			void loadExplorer();
 		},
+		onContext: (entry) => {
+			closeDetail();
+			closeTail();
+			state.query = state.draftQuery = "";
+			state.searchText = "";
+			state.logName = "";
+			state.resourceType = "";
+			state.severity = "";
+			state.stream = "";
+			state.container = entry.resource.labels.container_id || "";
+			state.node = entry.resource.labels.node_id || "";
+			state.timeFrom = new Date(
+				Date.parse(entry.timestamp) - 60000,
+			).toISOString();
+			state.timeTo = new Date(
+				Date.parse(entry.timestamp) + 60000,
+			).toISOString();
+			state.live = false;
+			state.pageToken = "";
+			syncURL("push");
+			renderAll();
+			void loadExplorer();
+		},
 		onTimelineSelect: (start, end) => {
+			state.live = false;
+			closeTail();
 			state.timeFrom = start;
 			state.timeTo = end;
 			state.pageToken = "";
-			syncURL();
+			syncURL("push");
 			renderAll();
 			void loadExplorer();
 		},
@@ -872,10 +932,7 @@ function moveEntryFocus(delta: number, edge?: "first" | "last"): void {
 			? 0
 			: edge === "last"
 				? rows.length - 1
-				: Math.min(
-						rows.length - 1,
-						Math.max(0, Math.max(current, 0) + delta),
-					);
+				: Math.min(rows.length - 1, Math.max(0, Math.max(current, 0) + delta));
 	rows[targetIndex].focus();
 }
 
@@ -903,9 +960,7 @@ function setupEvents(): void {
 		void loadStatus();
 		void loadExplorer();
 	});
-	$("#logsNavButton").addEventListener("click", () =>
-		setAppView("explorer"),
-	);
+	$("#logsNavButton").addEventListener("click", () => setAppView("explorer"));
 	$("#alertsNavButton").addEventListener("click", () => setAppView("alerts"));
 	$("#nodesNavButton").addEventListener("click", () => setAppView("nodes"));
 	$("#timelineNavButton").addEventListener("click", () => {
@@ -950,27 +1005,27 @@ function setupEvents(): void {
 	$("#containerFilter").addEventListener("change", (event: Event) => {
 		state.container = (event.target as HTMLSelectElement).value;
 		state.pageToken = "";
-		syncURL();
+		syncURL("push");
 		void loadExplorer();
 	});
 	$("#nodeFilter").addEventListener("change", (event: Event) => {
 		state.node = (event.target as HTMLSelectElement).value;
 		state.container = "";
 		state.pageToken = "";
-		syncURL();
+		syncURL("push");
 		void loadExplorer();
 	});
 	$("#streamFilter").addEventListener("change", (event: Event) => {
 		state.stream = (event.target as HTMLSelectElement).value;
 		state.pageToken = "";
-		syncURL();
+		syncURL("push");
 		void loadExplorer();
 	});
 	$("#severityFilter").addEventListener("change", (event: Event) => {
 		state.severity = (event.target as HTMLSelectElement)
 			.value as typeof state.severity;
 		state.pageToken = "";
-		syncURL();
+		syncURL("push");
 		void loadExplorer();
 	});
 	$("#rangeFilter").addEventListener("change", (event: Event) => {
@@ -984,13 +1039,13 @@ function setupEvents(): void {
 		state.timeFrom = "";
 		state.timeTo = "";
 		state.pageToken = "";
-		syncURL();
+		syncURL("push");
 		void loadExplorer();
 	});
 	$("#sortFilter").addEventListener("change", (event: Event) => {
 		state.sort = (event.target as HTMLSelectElement).value as typeof state.sort;
 		state.pageToken = "";
-		syncURL();
+		syncURL("push");
 		void loadExplorer();
 	});
 	$("#streamButton").addEventListener("click", () => setLive(!state.live));
@@ -1012,10 +1067,38 @@ function setupEvents(): void {
 		event.preventDefault();
 		closeDetail();
 	});
+	$("#detailBody").addEventListener("click", (event) => {
+		handleLogAction(event, openDetail, () => {
+			renderAll();
+			renderDetail();
+		});
+	});
 	$("#closeDetailButton").addEventListener("click", closeDetail);
 	$("#errorDismiss").addEventListener("click", () => clearError());
 	$("#entryList").addEventListener("click", (event: MouseEvent) => {
+		if (
+			handleLogAction(event, openDetail, () => {
+				renderAll();
+				renderDetail();
+			})
+		)
+			return;
 		const target = event.target as Element;
+		const expand = target.closest<HTMLButtonElement>("[data-expand-entry]");
+		if (expand?.dataset.expandEntry) {
+			const id = expand.dataset.expandEntry;
+			state.expandedEntries = state.expandedEntries.includes(id)
+				? state.expandedEntries.filter((item) => item !== id)
+				: [...state.expandedEntries, id];
+			syncURL();
+			renderEntries();
+			document
+				.querySelector<HTMLButtonElement>(
+					`[data-expand-entry="${CSS.escape(id)}"]`,
+				)
+				?.focus();
+			return;
+		}
 		const row = target.closest<HTMLButtonElement>(".entry-row");
 		const entryId = row?.dataset.entryId;
 		if (entryId) {
@@ -1032,8 +1115,12 @@ function setupEvents(): void {
 			toast(copied ? t("common.linkCopied") : t("detail.copyFailed")),
 		);
 	});
-	$("#createAlertButton").addEventListener("click", () => setAlertDialogOpen(true));
-	$("#manageAlertsButton").addEventListener("click", () => setAppView("alerts"));
+	$("#createAlertButton").addEventListener("click", () =>
+		setAlertDialogOpen(true),
+	);
+	$("#manageAlertsButton").addEventListener("click", () =>
+		setAppView("alerts"),
+	);
 	$("#createAlertPageButton").addEventListener("click", () =>
 		setAlertDialogOpen(true),
 	);
@@ -1042,7 +1129,11 @@ function setupEvents(): void {
 	$("#createEnrollmentButton").addEventListener("click", () => {
 		void createEnrollment()
 			.then((response) => {
-				renderEnrollmentToken(response.token, response.enrollmentUrl, response.enrollment.expiresAt);
+				renderEnrollmentToken(
+					response.token,
+					response.enrollmentUrl,
+					response.enrollment.expiresAt,
+				);
 				toast(t("nodes.tokenCreated"));
 			})
 			.catch((error) => toast(errorText(error)));
@@ -1060,7 +1151,9 @@ function setupEvents(): void {
 		);
 	});
 	$("#nodeList").addEventListener("click", (event: MouseEvent) => {
-		const button = (event.target as Element).closest<HTMLButtonElement>("[data-node-revoke]");
+		const button = (event.target as Element).closest<HTMLButtonElement>(
+			"[data-node-revoke]",
+		);
 		const id = button?.dataset.nodeRevoke;
 		if (!id || !window.confirm(t("nodes.revokeConfirm"))) return;
 		button.disabled = true;
@@ -1100,7 +1193,9 @@ function setupEvents(): void {
 			if (rule) setAlertDialogOpen(true, rule);
 			return;
 		}
-		const toggleButton = target.closest<HTMLButtonElement>("[data-alert-toggle]");
+		const toggleButton = target.closest<HTMLButtonElement>(
+			"[data-alert-toggle]",
+		);
 		if (toggleButton?.dataset.alertToggle) {
 			const rule = state.alerts.rules.find(
 				(item) => item.id === toggleButton.dataset.alertToggle,
@@ -1244,6 +1339,25 @@ if (
 	state.fieldsHidden = false;
 syncURL();
 setupRenderActions();
+setupWorkspace({
+	reload: () => void loadExplorer(),
+	toast,
+	closeDetail,
+	changed: syncMobileFieldsOverlay,
+});
+$("#runQueryButton").insertAdjacentHTML(
+	"afterend",
+	`<button type="button" class="text-button" id="cancelQueryButton" hidden>${escapeHTML(w("cancelQuery"))}</button>`,
+);
+$("#cancelQueryButton").onclick = () => {
+	explorerAbort?.abort();
+	reloadRequested = false;
+	if (initialLoadingTimer !== null) {
+		clearTimeout(initialLoadingTimer);
+		initialLoadingTimer = null;
+	}
+	initialLoadingVisibleAt = 0;
+};
 setupEvents();
 setLocale(getLocale());
 setupLocale();

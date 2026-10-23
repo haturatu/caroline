@@ -1,3 +1,4 @@
+import { renderWorkspace } from "../workspace/controller";
 import { $ } from "../../shared/dom/selectors";
 import { formatClockTime, formatNumber, formatTime } from "../../shared/format";
 import { state } from "../../app/state";
@@ -19,6 +20,7 @@ export function renderLoading(): void {
 }
 
 export function renderResultsMeta(): void {
+	renderWorkspace();
 	const response = state.response;
 	const logTail = response?.logTail || 1000;
 	const entryLimit = response?.entryLimit || 50000;
@@ -51,6 +53,7 @@ export function renderResultsMeta(): void {
 	const runButton = $("#runQueryButton") as HTMLButtonElement;
 	runButton.dataset.loading = String(state.loading);
 	runButton.disabled = state.loading;
+	document.querySelector("#cancelQueryButton")?.toggleAttribute("hidden", !state.loading);
 	runButton.setAttribute("aria-busy", String(state.loading));
 	$("#resultsFooter").textContent = "";
 	const next = $("#nextPageButton") as HTMLButtonElement;

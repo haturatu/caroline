@@ -1,7 +1,7 @@
 import { state } from "../../app/state";
 
 function quoteQueryValue(value: string): string {
-	return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+	return JSON.stringify(value);
 }
 
 /** Basic controls and the advanced editor are sent as one visible query. */
@@ -17,6 +17,9 @@ export function buildBasicQuery(): string[] {
 			);
 		}
 	}
+	if (state.logName) parts.push(`logName = ${quoteQueryValue(state.logName)}`);
+	if (state.resourceType)
+		parts.push(`resource.type = ${quoteQueryValue(state.resourceType)}`);
 	if (state.stream) parts.push(`stream = ${quoteQueryValue(state.stream)}`);
 	if (state.severity) parts.push(`severity = ${state.severity}`);
 	if (state.searchText)
@@ -25,7 +28,7 @@ export function buildBasicQuery(): string[] {
 }
 
 export function buildExplorerQuery(): string {
-	return [...buildBasicQuery(), state.query.trim()]
-		.filter(Boolean)
-		.join(" AND ");
+	const basic = buildBasicQuery().join(" AND ");
+	const advanced = state.query.trim();
+	return basic && advanced ? `${basic} AND (${advanced})` : basic || advanced;
 }

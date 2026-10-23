@@ -1,8 +1,9 @@
+import { structuredEntry, entryTools } from "./structured";
 import { $, escapeHTML } from "../../shared/dom/selectors";
 import { formatTime, severityClass } from "../../shared/format";
 import { copyText } from "../../shared/dom/clipboard";
 import { state } from "../../app/state";
-import { t } from "../../shared/i18n/index";
+import { getLocale, t } from "../../shared/i18n/index";
 import { getRenderActions } from "../explorer/actions";
 
 export function renderDetail(): void {
@@ -14,11 +15,33 @@ export function renderDetail(): void {
 	const detailFooter = $("#detailFooter");
 	if (!entry) {
 		detailBody.innerHTML = "";
+		delete detailBody.dataset.renderKey;
 		detailFooter.innerHTML = "";
 		detailFooter.setAttribute("hidden", "");
 		if (drawer.open) drawer.close();
 		return;
 	}
+	const renderKey = JSON.stringify([
+		entry,
+		getLocale(),
+		state.timeZone,
+		state.showMilliseconds,
+		state.highlight,
+		state.summaryFields,
+	]);
+	if (detailBody.dataset.renderKey === renderKey) {
+		const index = state.entries.indexOf(entry);
+		const previous = detailBody.querySelector<HTMLButtonElement>(
+			'[data-log-action="previous"]',
+		);
+		const next = detailBody.querySelector<HTMLButtonElement>(
+			'[data-log-action="next"]',
+		);
+		if (previous) previous.disabled = index <= 0;
+		if (next) next.disabled = index >= state.entries.length - 1;
+		return;
+	}
+	detailBody.dataset.renderKey = renderKey;
 	const labels = entry.resource.labels;
 	const containerName = labels.container_name || t("common.containerLog");
 	const nodeName = labels.node_name;
@@ -26,7 +49,8 @@ export function renderDetail(): void {
 	const hasJSONPayload = Boolean(
 		entry.jsonPayload && Object.keys(entry.jsonPayload).length > 0,
 	);
-	const textPayload = entry.textPayload || (!hasJSONPayload ? entry.summary : "");
+	const textPayload =
+		entry.textPayload || (!hasJSONPayload ? entry.summary : "");
 	const unavailable = t("common.notAvailable");
 	const metadataRow = (label: string, value: string | undefined) =>
 		`<div class="detail-meta-row"><span>${label}</span><strong title="${escapeHTML(value || unavailable)}">${escapeHTML(value || unavailable)}</strong></div>`;
@@ -40,7 +64,7 @@ export function renderDetail(): void {
 			<time class="detail-timestamp" datetime="${escapeHTML(entry.timestamp)}">${escapeHTML(formatTime(entry.timestamp))}</time>
 		</div>
 		${textPayload ? `<section class="detail-section"><span class="detail-label">${t("detail.payload")}</span><div class="detail-message">${escapeHTML(textPayload)}</div></section>` : ""}
-		${hasJSONPayload ? `<section class="detail-section"><span class="detail-label">${t("detail.jsonPayload")}</span><pre class="detail-code">${escapeHTML(JSON.stringify(entry.jsonPayload, null, 2))}</pre></section>` : ""}
+		${entryTools(entry)}${structuredEntry(entry)}<pre class="detail-code entry-raw" hidden>${escapeHTML(JSON.stringify(entry, null, 2))}</pre>
 		<section class="detail-section detail-metadata-section"><span class="detail-label">${t("detail.metadata")}</span><div class="detail-meta">
 			${metadataRow(t("detail.container"), containerName)}
 			${nodeName ? metadataRow(t("detail.node"), nodeName) : ""}

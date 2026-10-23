@@ -1,4 +1,4 @@
-export type Severity = "" | "DEBUG" | "INFO" | "WARNING" | "ERROR";
+export type Severity = "" | "DEFAULT" | "DEBUG" | "INFO" | "NOTICE" | "WARNING" | "ERROR" | "CRITICAL" | "ALERT" | "EMERGENCY";
 export type SortOrder = "asc" | "desc";
 export type Theme = "dark" | "light";
 export type AppView = "explorer" | "alerts" | "nodes";
@@ -114,6 +114,8 @@ export interface AppState {
 	query: string;
 	draftQuery: string;
 	searchText: string;
+	logName: string;
+	resourceType: string;
 	node: string;
 	showQuery: boolean;
 	container: string;
@@ -123,6 +125,15 @@ export interface AppState {
 	live: boolean;
 	sort: SortOrder;
 	wrap: boolean;
+	timeZone: string;
+	highlight: string;
+	summaryFields: string[];
+	expandedEntries: string[];
+	compact: boolean;
+	showSummary: boolean;
+	showMilliseconds: boolean;
+	fieldsWidth: number;
+	timelineHeight: number;
 	pageToken: string;
 	entries: ExplorerEntry[];
 	containers: ContainerInfo[];
@@ -168,7 +179,8 @@ export interface QuerySuggestion {
 }
 
 export interface RenderActions {
-	onFieldFilter?: (field: string, value: string) => void;
+	onFieldFilter?: (field: string, value: string, exclude?: boolean) => void;
+	onContext?: (entry: ExplorerEntry) => void;
 	onTimelineSelect?: (start: string, end: string) => void;
 	onToast?: (message: string) => void;
 }
