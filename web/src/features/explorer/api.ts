@@ -37,8 +37,8 @@ export type StatusResponse = {
 	dockerVersion?: string;
 };
 
-export function fetchExplorer(): Promise<ExplorerResponse> {
-	return getJSON<ExplorerResponse>(buildExplorerURL());
+export function fetchExplorer(signal?: AbortSignal): Promise<ExplorerResponse> {
+	return getJSON<ExplorerResponse>(buildExplorerURL(), { signal });
 }
 
 export function fetchStatus(): Promise<StatusResponse> {

@@ -1,3 +1,4 @@
+import { zonedInput } from "../workspace/time";
 import { buildBasicQuery } from "../explorer/query";
 import { $, escapeHTML } from "../../shared/dom/selectors";
 import { state } from "../../app/state";
@@ -5,24 +6,38 @@ import { t } from "../../shared/i18n/index";
 
 export function renderFilters(): void {
 	const select = $("#containerFilter") as HTMLSelectElement;
-	const nodes = [...new Map(
-		state.containers
-			.filter((container) => container.nodeId || container.nodeName)
-			.map((container) => [container.nodeId || container.nodeName || "", container.nodeName || container.nodeId || "Unknown node"]),
-	)].sort((left, right) => left[1].localeCompare(right[1]));
+	const nodes = [
+		...new Map(
+			state.containers
+				.filter((container) => container.nodeId || container.nodeName)
+				.map((container) => [
+					container.nodeId || container.nodeName || "",
+					container.nodeName || container.nodeId || "Unknown node",
+				]),
+		),
+	].sort((left, right) => left[1].localeCompare(right[1]));
 	const nodeSelect = $("#nodeFilter") as HTMLSelectElement;
 	nodeSelect.innerHTML = [
 		`<option value="">${t("filters.allNodes")}</option>`,
-		...nodes.map(([id, name]) => `<option value="${escapeHTML(id)}">${escapeHTML(name)}</option>`),
+		...nodes.map(
+			([id, name]) =>
+				`<option value="${escapeHTML(id)}">${escapeHTML(name)}</option>`,
+		),
 	].join("");
 	nodeSelect.value = state.node;
 	const options = [
 		`<option value="">${t("filters.allContainers")}</option>`,
 		...nodes.flatMap(([nodeId, nodeName]) => {
-			const containers = state.containers.filter((container) => (container.nodeId || container.nodeName || "") === nodeId);
+			const containers = state.containers.filter(
+				(container) =>
+					(container.nodeId || container.nodeName || "") === nodeId,
+			);
 			if (!containers.length) return [];
 			return `<optgroup label="${escapeHTML(nodeName)}">${containers
-				.map((container) => `<option value="${escapeHTML(container.id)}">${escapeHTML(container.name)}</option>`)
+				.map(
+					(container) =>
+						`<option value="${escapeHTML(container.id)}">${escapeHTML(container.name)}</option>`,
+				)
 				.join("")}</optgroup>`;
 		}),
 		...state.containers.filter((container) => !container.nodeId && !container.nodeName).map(
@@ -58,8 +73,5 @@ export function renderFilters(): void {
 }
 
 function toDateTimeLocal(value: string): string {
-	const date = new Date(value);
-	if (Number.isNaN(date.getTime())) return "";
-	const pad = (part: number) => String(part).padStart(2, "0");
-	return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+	return zonedInput(value, state.timeZone);
 }

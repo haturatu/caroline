@@ -8,10 +8,13 @@
 		"dev": "vite",
 		"preview": "vite preview",
 		"lint": "biome lint web",
-		"typecheck": "tsc --noEmit"
+		"typecheck": "tsc --noEmit",
+		"test": "node --test web/tests/*.test.mjs",
+		"test:browser": "npm run build && node web/tests/explorer-browser.mjs"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "2.6.2",
+		"playwright-core": "1.64.1",
 		"typescript": "7.0.2",
 		"vite": "8.3.5"
 	}

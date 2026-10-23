@@ -141,19 +141,19 @@ const bindings: Binding[] = [
 	},
 	{ selector: "#containerFilter + span", key: "filters.container" },
 	{
-		selector: ".refine-row label.filter-control:nth-of-type(1) > span",
+		selector: ".refine-row label:has(#containerFilter) > span",
 		key: "filters.container",
 	},
 	{
-		selector: ".refine-row label.filter-control:nth-of-type(2) > span",
+		selector: ".refine-row label:has(#streamFilter) > span",
 		key: "filters.stream",
 	},
 	{
-		selector: ".refine-row label.filter-control:nth-of-type(3) > span",
+		selector: ".refine-row label:has(#severityFilter) > span",
 		key: "filters.severity",
 	},
 	{
-		selector: ".refine-row label.filter-control:nth-of-type(4) > span",
+		selector: ".refine-row label:has(#rangeFilter) > span",
 		key: "filters.time",
 	},
 	{
@@ -161,6 +161,7 @@ const bindings: Binding[] = [
 		key: "filters.container",
 		attribute: "aria-label",
 	},
+	{ selector: ".refine-row label:has(#nodeFilter) > span", key: "filters.node" },
 	{ selector: "#streamFilter", key: "filters.stream", attribute: "aria-label" },
 	{
 		selector: "#severityFilter",

@@ -6,3 +6,5 @@
 @import url("./styles/components.css") layer(components);
 @import url("./styles/timeline.css") layer(timeline);
 @import url("./styles/responsive.css") layer(responsive);
+
+@import "./styles/workspace.css";

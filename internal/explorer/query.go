@@ -8,17 +8,26 @@ import (
 	"time"
 )
 
-var explorerClause = regexp.MustCompile("^\\s*([A-Za-z0-9_.-]+)\\s*(>=|<=|!=|=|:|>|<)\\s*(?:\"([^\"]*)\"|`([^`]*)`|([^\\s]+))\\s*$")
+var explorerClause = regexp.MustCompile("^\\s*([A-Za-z0-9_.-]+)\\s*(>=|<=|!=|=|:|>|<)\\s*(?:\"((?:\\\\.|[^\"\\\\])*)\"|`([^`]*)`|([^\\s]+))\\s*$")
+
+func queryQuoteEscaped(input string, index int) bool {
+	backslashes := 0
+	for index--; index >= 0 && input[index] == '\\'; index-- {
+		backslashes++
+	}
+	return backslashes%2 != 0
+}
 
 func splitQueryOperator(input, operator string) []string {
 	parts := make([]string, 0, 2)
 	start := 0
 	inDoubleQuote := false
 	inBacktick := false
+	depth := 0
 	for index := 0; index <= len(input)-len(operator); index++ {
 		switch input[index] {
 		case '"':
-			if !inBacktick && (index == 0 || input[index-1] != '\\') {
+			if !inBacktick && !queryQuoteEscaped(input, index) {
 				inDoubleQuote = !inDoubleQuote
 			}
 		case '`':
@@ -26,7 +35,15 @@ func splitQueryOperator(input, operator string) []string {
 				inBacktick = !inBacktick
 			}
 		}
-		if inDoubleQuote || inBacktick || !strings.EqualFold(input[index:index+len(operator)], operator) {
+		if !inDoubleQuote && !inBacktick {
+			switch input[index] {
+			case '(':
+				depth++
+			case ')':
+				depth--
+			}
+		}
+		if depth != 0 || inDoubleQuote || inBacktick || !strings.EqualFold(input[index:index+len(operator)], operator) {
 			continue
 		}
 		leftBoundary := index == 0 || input[index-1] == ' ' || input[index-1] == '\n' || input[index-1] == '\t'
@@ -85,6 +102,8 @@ func textQueryFieldValue(value string) queryFieldValue {
 func queryValue(entry Entry, field string) []queryFieldValue {
 	field = strings.TrimSpace(field)
 	switch field {
+	case "insertId":
+		return []queryFieldValue{textQueryFieldValue(entry.InsertID)}
 	case "severity":
 		return []queryFieldValue{textQueryFieldValue(entry.Severity)}
 	case "textPayload", "message":
@@ -138,6 +157,8 @@ func SeverityRank(severity string) int {
 
 func severityRank(severity string) (int, bool) {
 	switch strings.ToUpper(severity) {
+	case "DEFAULT":
+		return 0, true
 	case "DEBUG":
 		return 100, true
 	case "INFO":
@@ -250,7 +271,15 @@ func containsQueryTokens(value, query string) bool {
 	value = strings.ToLower(value)
 	query = strings.TrimSpace(query)
 	if len(query) >= 2 && ((query[0] == '"' && query[len(query)-1] == '"') || (query[0] == '`' && query[len(query)-1] == '`')) {
-		return strings.Contains(value, strings.ToLower(query[1:len(query)-1]))
+		literal := query[1 : len(query)-1]
+		if query[0] == '"' {
+			decoded, err := strconv.Unquote(query)
+			if err != nil {
+				return false
+			}
+			literal = decoded
+		}
+		return strings.Contains(value, strings.ToLower(literal))
 	}
 	for _, token := range strings.Fields(strings.Trim(query, "\"`")) {
 		if !strings.Contains(value, strings.ToLower(token)) {
@@ -262,6 +291,9 @@ func containsQueryTokens(value, query string) bool {
 
 func matchesExplorerClause(entry Entry, clause string) bool {
 	clause = strings.TrimSpace(clause)
+	if strings.HasPrefix(clause, "(") && strings.HasSuffix(clause, ")") {
+		return MatchesQuery(entry, clause[1:len(clause)-1])
+	}
 	upper := strings.ToUpper(clause)
 	if strings.HasPrefix(upper, "SEARCH(") && strings.HasSuffix(clause, ")") {
 		query := strings.TrimSpace(clause[len("SEARCH(") : len(clause)-1])
@@ -275,15 +307,21 @@ func matchesExplorerClause(entry Entry, clause string) bool {
 	if len(matches) == 0 {
 		return containsQueryTokens(explorerSearchText(entry), clause)
 	}
-	expected := matches[3]
-	if expected == "" {
+	expected := matches[5]
+	// A quoted empty value is distinct from an absent capture. Decode the
+	// same JSON string escapes emitted by field actions in the explorer.
+	quoted := strings.TrimSpace(clause[strings.Index(clause, matches[2])+len(matches[2]):])
+	if strings.HasPrefix(quoted, "\"") {
+		decoded, err := strconv.Unquote(quoted)
+		if err != nil {
+			return false
+		}
+		expected = decoded
+	} else if strings.HasPrefix(quoted, "`") {
 		expected = matches[4]
 	}
-	if expected == "" {
-		expected = matches[5]
-	}
 	for _, actual := range queryValue(entry, matches[1]) {
-		if actual.text != "" && compareExplorerValue(actual, matches[2], expected, matches[1]) {
+		if compareExplorerValue(actual, matches[2], expected, matches[1]) {
 			return true
 		}
 	}
@@ -297,7 +335,7 @@ func NormalizeQuery(query string) string {
 	inBacktick := false
 	for index := 0; index < len(query); index++ {
 		character := query[index]
-		if character == '"' && !inBacktick && (index == 0 || query[index-1] != '\\') {
+		if character == '"' && !inBacktick && !queryQuoteEscaped(query, index) {
 			inDoubleQuote = !inDoubleQuote
 		}
 		if character == '`' && !inDoubleQuote {

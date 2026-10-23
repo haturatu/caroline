@@ -24,6 +24,6 @@ export async function requestJSON<T>(
 	return payload as T;
 }
 
-export function getJSON<T>(url: string): Promise<T> {
-	return requestJSON<T>(url);
+export function getJSON<T>(url: string, init: RequestInit = {}): Promise<T> {
+	return requestJSON<T>(url, init);
 }

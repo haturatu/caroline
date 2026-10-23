@@ -30,6 +30,12 @@ jobs:
       - name: Type-check frontend
         run: npm run typecheck
 
+      - name: Test explorer utilities
+        run: npm test
+
+      - name: Build frontend
+        run: npm run build
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:

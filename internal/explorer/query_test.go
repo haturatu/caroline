@@ -91,3 +91,55 @@ func TestSeverityRankRejectsUnknownValues(t *testing.T) {
 		t.Fatalf("SeverityRank(BANANA) = %d, want a negative invalid rank", got)
 	}
 }
+
+func TestFieldActionQuotedValues(t *testing.T) {
+	entry := Entry{
+		Severity:    "ERROR",
+		TextPayload: "line\nbreak and a \"quote\" at C:\\logs\\",
+		JSONPayload: map[string]any{
+			"quote":     `say "hello" AND goodbye`,
+			"path":      `C:\logs\`,
+			"empty":     "",
+			"multiline": "line\nbreak",
+		},
+	}
+	for _, test := range []struct {
+		query string
+		want  bool
+	}{
+		{`jsonPayload.quote = "say \"hello\" AND goodbye"`, true},
+		{`jsonPayload.quote != "say \"hello\" AND goodbye"`, false},
+		{`jsonPayload.path = "C:\\logs\\" AND severity = ERROR`, true},
+		{`jsonPayload.path = "C:\\logs\\" AND severity = INFO`, false},
+		{`jsonPayload.empty = ""`, true},
+		{`jsonPayload.multiline = "line\nbreak"`, true},
+		{`SEARCH("line\nbreak")`, true},
+		{`SEARCH("a \"quote\"")`, true},
+		{"jsonPayload.path = \"C:\\\\logs\\\\\"\nseverity = ERROR", true},
+	} {
+		t.Run(test.query, func(t *testing.T) {
+			if got := MatchesQuery(entry, test.query); got != test.want {
+				t.Errorf("MatchesQuery(%q) = %v, want %v", test.query, got, test.want)
+			}
+		})
+	}
+}
+
+func TestGroupedExplorerFilters(t *testing.T) {
+	entry := Entry{InsertID: "test-entry", Severity: "INFO", Stream: "stdout", JSONPayload: map[string]any{"message": "value (AND OR)"}}
+	for _, test := range []struct {
+		query string
+		want  bool
+	}{
+		{`insertId = "test-entry" AND severity >= DEFAULT`, true},
+		{`(severity = INFO OR severity = ERROR) AND stream = "stderr"`, false},
+		{`stream = "stderr" AND (severity = INFO OR severity = ERROR)`, false},
+		{`stream = "stdout" AND (severity = INFO OR severity = ERROR)`, true},
+		{`((severity = ERROR OR severity = INFO) AND stream = "stdout")`, true},
+		{`jsonPayload.message = "value (AND OR)" AND (stream = stderr OR stream = stdout)`, true},
+	} {
+		if got := MatchesQuery(entry, test.query); got != test.want {
+			t.Errorf("MatchesQuery(%q) = %v, want %v", test.query, got, test.want)
+		}
+	}
+}

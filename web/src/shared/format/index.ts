@@ -1,3 +1,4 @@
+import { state } from "../../app/state";
 import { getLocale, t } from "../i18n/index";
 
 export function formatNumber(value: number): string {
@@ -9,8 +10,15 @@ export function formatTime(value: string): string {
 	return Number.isNaN(date.getTime())
 		? t("common.notAvailable")
 		: new Intl.DateTimeFormat(getLocale(), {
-				dateStyle: "short",
-				timeStyle: "medium",
+				...(state.timeZone === "local" ? {} : { timeZone: state.timeZone }),
+				year: "numeric",
+				month: "2-digit",
+				day: "2-digit",
+				hour: "2-digit",
+				minute: "2-digit",
+				second: "2-digit",
+				hour12: false,
+				...(state.showMilliseconds ? { fractionalSecondDigits: 3 } : {}),
 			}).format(date);
 }
 
@@ -19,6 +27,7 @@ export function formatClockTime(value: string): string {
 	return Number.isNaN(date.getTime())
 		? t("common.notAvailable")
 		: new Intl.DateTimeFormat(getLocale(), {
+				...(state.timeZone === "local" ? {} : { timeZone: state.timeZone }),
 				hour: "2-digit",
 				minute: "2-digit",
 				second: "2-digit",
@@ -31,6 +40,7 @@ export function formatTimelineTick(value: string): string {
 	return Number.isNaN(date.getTime())
 		? t("common.notAvailable")
 		: new Intl.DateTimeFormat(getLocale(), {
+				...(state.timeZone === "local" ? {} : { timeZone: state.timeZone }),
 				hour: "2-digit",
 				minute: "2-digit",
 				second: "2-digit",
@@ -57,6 +67,7 @@ export function formatTimelineAxisTick(
 	const showDate = duration >= 12 * 60 * 60 * 1000;
 	const showWeekday = duration >= 3 * 24 * 60 * 60 * 1000;
 	return new Intl.DateTimeFormat(getLocale(), {
+		...(state.timeZone === "local" ? {} : { timeZone: state.timeZone }),
 		...(showDate ? { month: "2-digit", day: "2-digit" } : {}),
 		...(showWeekday ? { weekday: "short" } : {}),
 		hour: !showWeekday ? "2-digit" : undefined,
@@ -70,6 +81,7 @@ export function formatTimelineDetail(value: string): string {
 	return Number.isNaN(date.getTime())
 		? t("common.notAvailable")
 		: new Intl.DateTimeFormat(getLocale(), {
+				...(state.timeZone === "local" ? {} : { timeZone: state.timeZone }),
 				year: "numeric",
 				month: "2-digit",
 				day: "2-digit",
