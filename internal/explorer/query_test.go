@@ -91,3 +91,36 @@ func TestSeverityRankRejectsUnknownValues(t *testing.T) {
 		t.Fatalf("SeverityRank(BANANA) = %d, want a negative invalid rank", got)
 	}
 }
+
+func TestFieldActionQuotedValues(t *testing.T) {
+	entry := Entry{
+		Severity:    "ERROR",
+		TextPayload: "line\nbreak and a \"quote\" at C:\\logs\\",
+		JSONPayload: map[string]any{
+			"quote":     `say "hello" AND goodbye`,
+			"path":      `C:\logs\`,
+			"empty":     "",
+			"multiline": "line\nbreak",
+		},
+	}
+	for _, test := range []struct {
+		query string
+		want  bool
+	}{
+		{`jsonPayload.quote = "say \"hello\" AND goodbye"`, true},
+		{`jsonPayload.quote != "say \"hello\" AND goodbye"`, false},
+		{`jsonPayload.path = "C:\\logs\\" AND severity = ERROR`, true},
+		{`jsonPayload.path = "C:\\logs\\" AND severity = INFO`, false},
+		{`jsonPayload.empty = ""`, true},
+		{`jsonPayload.multiline = "line\nbreak"`, true},
+		{`SEARCH("line\nbreak")`, true},
+		{`SEARCH("a \"quote\"")`, true},
+		{"jsonPayload.path = \"C:\\\\logs\\\\\"\nseverity = ERROR", true},
+	} {
+		t.Run(test.query, func(t *testing.T) {
+			if got := MatchesQuery(entry, test.query); got != test.want {
+				t.Errorf("MatchesQuery(%q) = %v, want %v", test.query, got, test.want)
+			}
+		})
+	}
+}
