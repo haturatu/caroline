@@ -1,0 +1,55 @@
+goos: linux
+goarch: amd64
+pkg: caroline/internal/storage/sqlite
+cpu: AMD Ryzen 5 PRO 3500U w/ Radeon Vega Mobile Gfx
+BenchmarkCleanupBudget/rows=100/retain=50%         	       1	    632166 ns/op	    2168 B/op	      28 allocs/op
+BenchmarkCleanupBudget/rows=100/retain=100%        	       1	    142580 ns/op	     640 B/op	       8 allocs/op
+BenchmarkCleanupBudget/rows=1000/retain=50%        	       1	   5955349 ns/op	    2424 B/op	      28 allocs/op
+BenchmarkCleanupBudget/rows=1000/retain=100%       	       1	    896544 ns/op	     640 B/op	       8 allocs/op
+BenchmarkCleanupBudget/rows=5000/retain=50%        	       1	  33265804 ns/op	    5176 B/op	      31 allocs/op
+BenchmarkCleanupBudget/rows=5000/retain=100%       	       1	   4728237 ns/op	     640 B/op	       8 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: caroline/internal/storage/sqlite
+cpu: AMD Ryzen 5 PRO 3500U w/ Radeon Vega Mobile Gfx
+BenchmarkCleanupBudget/rows=100/retain=50%         	       1	    642595 ns/op	    2168 B/op	      28 allocs/op
+BenchmarkCleanupBudget/rows=100/retain=100%        	       1	    147308 ns/op	     640 B/op	       8 allocs/op
+BenchmarkCleanupBudget/rows=1000/retain=50%        	       1	   6006936 ns/op	    2424 B/op	      28 allocs/op
+BenchmarkCleanupBudget/rows=1000/retain=100%       	       1	    920581 ns/op	     640 B/op	       8 allocs/op
+BenchmarkCleanupBudget/rows=5000/retain=50%        	       1	  33151919 ns/op	    5176 B/op	      31 allocs/op
+BenchmarkCleanupBudget/rows=5000/retain=100%       	       1	   4821955 ns/op	     640 B/op	       8 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: caroline/internal/storage/sqlite
+cpu: AMD Ryzen 5 PRO 3500U w/ Radeon Vega Mobile Gfx
+BenchmarkCleanupBudget/rows=100/retain=50%         	       1	    820511 ns/op	    2168 B/op	      28 allocs/op
+BenchmarkCleanupBudget/rows=100/retain=100%        	       1	    166725 ns/op	     640 B/op	       8 allocs/op
+BenchmarkCleanupBudget/rows=1000/retain=50%        	       1	   6009931 ns/op	    2424 B/op	      28 allocs/op
+BenchmarkCleanupBudget/rows=1000/retain=100%       	       1	    836150 ns/op	     640 B/op	       8 allocs/op
+BenchmarkCleanupBudget/rows=5000/retain=50%        	       1	  34581301 ns/op	    5176 B/op	      31 allocs/op
+BenchmarkCleanupBudget/rows=5000/retain=100%       	       1	   4745973 ns/op	     640 B/op	       8 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: caroline/internal/storage/sqlite
+cpu: AMD Ryzen 5 PRO 3500U w/ Radeon Vega Mobile Gfx
+BenchmarkCleanupBudget/rows=100/retain=50%         	       1	   1343941 ns/op	    2168 B/op	      28 allocs/op
+BenchmarkCleanupBudget/rows=100/retain=100%        	       1	    143161 ns/op	     640 B/op	       8 allocs/op
+BenchmarkCleanupBudget/rows=1000/retain=50%        	       1	   6029698 ns/op	    2424 B/op	      28 allocs/op
+BenchmarkCleanupBudget/rows=1000/retain=100%       	       1	    855166 ns/op	     640 B/op	       8 allocs/op
+BenchmarkCleanupBudget/rows=5000/retain=50%        	       1	  34942374 ns/op	    5176 B/op	      31 allocs/op
+BenchmarkCleanupBudget/rows=5000/retain=100%       	       1	   4727458 ns/op	     640 B/op	       8 allocs/op
+PASS
+goos: linux
+goarch: amd64
+pkg: caroline/internal/storage/sqlite
+cpu: AMD Ryzen 5 PRO 3500U w/ Radeon Vega Mobile Gfx
+BenchmarkCleanupBudget/rows=100/retain=50%         	       1	    640360 ns/op	    2168 B/op	      28 allocs/op
+BenchmarkCleanupBudget/rows=100/retain=100%        	       1	    156556 ns/op	     640 B/op	       8 allocs/op
+BenchmarkCleanupBudget/rows=1000/retain=50%        	       1	   5903661 ns/op	    2424 B/op	      28 allocs/op
+BenchmarkCleanupBudget/rows=1000/retain=100%       	       1	    803730 ns/op	     640 B/op	       8 allocs/op
+BenchmarkCleanupBudget/rows=5000/retain=50%        	       1	  33602371 ns/op	    5176 B/op	      31 allocs/op
+BenchmarkCleanupBudget/rows=5000/retain=100%       	       1	   4684597 ns/op	     640 B/op	       8 allocs/op
+PASS
