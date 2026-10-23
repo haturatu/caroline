@@ -23,6 +23,7 @@ func splitQueryOperator(input, operator string) []string {
 	start := 0
 	inDoubleQuote := false
 	inBacktick := false
+	depth := 0
 	for index := 0; index <= len(input)-len(operator); index++ {
 		switch input[index] {
 		case '"':
@@ -34,7 +35,15 @@ func splitQueryOperator(input, operator string) []string {
 				inBacktick = !inBacktick
 			}
 		}
-		if inDoubleQuote || inBacktick || !strings.EqualFold(input[index:index+len(operator)], operator) {
+		if !inDoubleQuote && !inBacktick {
+			switch input[index] {
+			case '(':
+				depth++
+			case ')':
+				depth--
+			}
+		}
+		if depth != 0 || inDoubleQuote || inBacktick || !strings.EqualFold(input[index:index+len(operator)], operator) {
 			continue
 		}
 		leftBoundary := index == 0 || input[index-1] == ' ' || input[index-1] == '\n' || input[index-1] == '\t'
@@ -146,6 +155,8 @@ func SeverityRank(severity string) int {
 
 func severityRank(severity string) (int, bool) {
 	switch strings.ToUpper(severity) {
+	case "DEFAULT":
+		return 0, true
 	case "DEBUG":
 		return 100, true
 	case "INFO":
@@ -278,6 +289,9 @@ func containsQueryTokens(value, query string) bool {
 
 func matchesExplorerClause(entry Entry, clause string) bool {
 	clause = strings.TrimSpace(clause)
+	if strings.HasPrefix(clause, "(") && strings.HasSuffix(clause, ")") {
+		return MatchesQuery(entry, clause[1:len(clause)-1])
+	}
 	upper := strings.ToUpper(clause)
 	if strings.HasPrefix(upper, "SEARCH(") && strings.HasSuffix(clause, ")") {
 		query := strings.TrimSpace(clause[len("SEARCH(") : len(clause)-1])

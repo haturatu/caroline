@@ -124,3 +124,21 @@ func TestFieldActionQuotedValues(t *testing.T) {
 		})
 	}
 }
+
+func TestGroupedExplorerFilters(t *testing.T) {
+	entry := Entry{Severity: "INFO", Stream: "stdout", JSONPayload: map[string]any{"message": "value (AND OR)"}}
+	for _, test := range []struct {
+		query string
+		want  bool
+	}{
+		{`(severity = INFO OR severity = ERROR) AND stream = "stderr"`, false},
+		{`stream = "stderr" AND (severity = INFO OR severity = ERROR)`, false},
+		{`stream = "stdout" AND (severity = INFO OR severity = ERROR)`, true},
+		{`((severity = ERROR OR severity = INFO) AND stream = "stdout")`, true},
+		{`jsonPayload.message = "value (AND OR)" AND (stream = stderr OR stream = stdout)`, true},
+	} {
+		if got := MatchesQuery(entry, test.query); got != test.want {
+			t.Errorf("MatchesQuery(%q) = %v, want %v", test.query, got, test.want)
+		}
+	}
+}
