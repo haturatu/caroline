@@ -874,7 +874,7 @@ function moveEntryFocus(delta: number, edge?: "first" | "last"): void {
 				? rows.length - 1
 				: Math.min(
 						rows.length - 1,
-						Math.max(0, (current < 0 ? 0 : current) + delta),
+						Math.max(0, Math.max(current, 0) + delta),
 					);
 	rows[targetIndex].focus();
 }
