@@ -20,6 +20,13 @@ const searchChunkSize = 1000
 
 var errNotFound = errors.New("sqlite row was not found")
 var errSearchEntriesLimit = errors.New("sqlite search entry limit reached")
+var errCleanupBudgetReached = errors.New("sqlite cleanup budget reached")
+
+// Keep the existing SQLite text-length accounting, including NULL handling,
+// identical for the total and the oldest-first boundary scan.
+const logPayloadSize = `length(COALESCE(text_payload, '')) + length(COALESCE(json_payload, '')) +
+    length(COALESCE(labels_json, '')) + length(COALESCE(resource_labels_json, '')) +
+    length(COALESCE(summary, ''))`
 
 type Store struct {
 	conn *sqlite.Conn
@@ -75,46 +82,43 @@ func (s *Store) Cleanup(ctx context.Context, before time.Time, maxBytes int64, m
 			return nil
 		}
 
-		for {
-			var logicalBytes int64
-			if err := execRows(conn, `
-SELECT COALESCE(SUM(
-    length(COALESCE(text_payload, '')) + length(COALESCE(json_payload, '')) +
-    length(COALESCE(labels_json, '')) + length(COALESCE(resource_labels_json, '')) +
-    length(COALESCE(summary, ''))
-), 0) FROM logs`, nil, func(stmt *sqlite.Stmt) error {
-				logicalBytes = stmt.ColumnInt64(0)
-				return nil
-			}); err != nil {
-				txErr = err
-				return err
-			}
-			if logicalBytes <= maxBytes {
-				return nil
-			}
-
-			ids := make([]string, 0, 1)
-			if err := execRows(conn, `
-SELECT insert_id FROM logs
-ORDER BY timestamp_ns ASC, insert_id ASC
-LIMIT 1`, nil, func(stmt *sqlite.Stmt) error {
-				ids = append(ids, stmt.ColumnText(0))
-				return nil
-			}); err != nil {
-				txErr = err
-				return err
-			}
-			if len(ids) == 0 {
-				return nil
-			}
-			for _, id := range ids {
-				if err := exec(conn, `DELETE FROM logs WHERE insert_id = ?1`, []any{id}); err != nil {
-					txErr = err
-					return err
-				}
-				deleted += conn.Changes()
-			}
+		var logicalBytes int64
+		if err := execRows(conn, `SELECT COALESCE(SUM(`+logPayloadSize+`), 0) FROM logs`, nil, func(stmt *sqlite.Stmt) error {
+			logicalBytes = stmt.ColumnInt64(0)
+			return nil
+		}); err != nil {
+			txErr = err
+			return err
 		}
+		if logicalBytes <= maxBytes {
+			return nil
+		}
+
+		// Find the smallest oldest-first prefix that restores the budget. Finish
+		// the SELECT before deleting, and keep only its final ordering key in Go.
+		var cutoffTimestamp int64
+		var cutoffID string
+		err = execRows(conn, `SELECT insert_id, timestamp_ns, `+logPayloadSize+` FROM logs
+ORDER BY timestamp_ns ASC, insert_id ASC`, nil, func(stmt *sqlite.Stmt) error {
+			logicalBytes -= stmt.ColumnInt64(2)
+			if logicalBytes <= maxBytes {
+				cutoffID = stmt.ColumnText(0)
+				cutoffTimestamp = stmt.ColumnInt64(1)
+				return errCleanupBudgetReached
+			}
+			return nil
+		})
+		if !errors.Is(err, errCleanupBudgetReached) {
+			txErr = err
+			return err
+		}
+		// The timestamp/insert-ID index supports both the scan and this range.
+		if err := exec(conn, `DELETE FROM logs WHERE (timestamp_ns, insert_id) <= (?1, ?2)`, []any{cutoffTimestamp, cutoffID}); err != nil {
+			txErr = err
+			return err
+		}
+		deleted += conn.Changes()
+		return nil
 	})
 	return deleted, err
 }
