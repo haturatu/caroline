@@ -18,6 +18,8 @@ import (
 
 const searchChunkSize = 1000
 
+const DefaultReplayRetention = 7 * 24 * time.Hour
+
 var errNotFound = errors.New("sqlite row was not found")
 var errSearchEntriesLimit = errors.New("sqlite search entry limit reached")
 var errCleanupBudgetReached = errors.New("sqlite cleanup budget reached")
@@ -29,8 +31,9 @@ const logPayloadSize = `length(COALESCE(text_payload, '')) + length(COALESCE(jso
     length(COALESCE(summary, ''))`
 
 type Store struct {
-	conn *sqlite.Conn
-	mu   sync.Mutex
+	replayRetention time.Duration
+	conn            *sqlite.Conn
+	mu              sync.Mutex
 }
 
 type RetentionMode string
@@ -48,13 +51,19 @@ const (
 // measures retained log payload rather than the database file's transient WAL.
 func (s *Store) Cleanup(ctx context.Context, before time.Time, maxBytes int64, mode RetentionMode) (int, error) {
 	deleted := 0
-	err := s.withConn(ctx, func(conn *sqlite.Conn) error {
-		var txErr error
+	err := s.withConn(ctx, func(conn *sqlite.Conn) (cleanupErr error) {
 		end, err := sqlitex.ImmediateTransaction(conn)
 		if err != nil {
 			return err
 		}
-		defer end(&txErr)
+		defer end(&cleanupErr)
+		// Run before committing, including paths where log cleanup is disabled
+		// or already below budget. Never count metadata rows as deleted logs.
+		defer func() {
+			if cleanupErr == nil {
+				cleanupErr = s.cleanupAuxiliary(conn, time.Now().UTC())
+			}
+		}()
 
 		var ageClauses []string
 		var ageArgs []any
@@ -73,7 +82,7 @@ func (s *Store) Cleanup(ctx context.Context, before time.Time, maxBytes int64, m
 		}
 		if len(ageClauses) > 0 {
 			if err := exec(conn, `DELETE FROM logs WHERE `+strings.Join(ageClauses, " OR "), ageArgs); err != nil {
-				txErr = err
+				cleanupErr = err
 				return err
 			}
 			deleted += conn.Changes()
@@ -87,7 +96,7 @@ func (s *Store) Cleanup(ctx context.Context, before time.Time, maxBytes int64, m
 			logicalBytes = stmt.ColumnInt64(0)
 			return nil
 		}); err != nil {
-			txErr = err
+			cleanupErr = err
 			return err
 		}
 		if logicalBytes <= maxBytes {
@@ -109,12 +118,12 @@ ORDER BY timestamp_ns ASC, insert_id ASC`, nil, func(stmt *sqlite.Stmt) error {
 			return nil
 		})
 		if !errors.Is(err, errCleanupBudgetReached) {
-			txErr = err
+			cleanupErr = err
 			return err
 		}
 		// The timestamp/insert-ID index supports both the scan and this range.
 		if err := exec(conn, `DELETE FROM logs WHERE (timestamp_ns, insert_id) <= (?1, ?2)`, []any{cutoffTimestamp, cutoffID}); err != nil {
-			txErr = err
+			cleanupErr = err
 			return err
 		}
 		deleted += conn.Changes()
@@ -123,10 +132,36 @@ ORDER BY timestamp_ns ASC, insert_id ASC`, nil, func(stmt *sqlite.Stmt) error {
 	return deleted, err
 }
 
+func (s *Store) cleanupAuxiliary(conn *sqlite.Conn, now time.Time) error {
+	retention := s.replayRetention
+	if retention <= 0 {
+		retention = DefaultReplayRetention
+	}
+	cutoff := now.Add(-retention).UnixNano()
+	// Keep duplicate protection for every retained log, even when log retention
+	// is longer than the replay window.
+	if err := exec(conn, `DELETE FROM ingest_batches WHERE received_at_ns < ?1
+        AND NOT EXISTS (SELECT 1 FROM logs WHERE logs.agent_id = ingest_batches.agent_id
+            AND logs.boot_id = ingest_batches.boot_id AND logs.sequence = ingest_batches.sequence)`, []any{cutoff}); err != nil {
+		return err
+	}
+	if err := exec(conn, `DELETE FROM containers WHERE active = 0 AND last_seen_ns < ?1
+        AND NOT EXISTS (SELECT 1 FROM logs WHERE logs.node_id = containers.node_id
+            AND logs.container_id = containers.container_id)`, []any{cutoff}); err != nil {
+		return err
+	}
+	return exec(conn, `DELETE FROM enrollment_tokens WHERE expires_at_ns <= ?1 OR used_at_ns IS NOT NULL`, []any{now.UnixNano()})
+}
+
 var _ explorer.LogStore = (*Store)(nil)
 var _ node.Store = (*Store)(nil)
 
-func Open(path string) (*Store, error) {
+func Open(path string) (*Store, error) { return OpenWithReplayRetention(path, DefaultReplayRetention) }
+
+func OpenWithReplayRetention(path string, replayRetention time.Duration) (*Store, error) {
+	if replayRetention <= 0 {
+		return nil, errors.New("replay retention must be positive")
+	}
 	path = strings.TrimSpace(path)
 	if path == "" {
 		path = "caroline.db"
@@ -135,7 +170,7 @@ func Open(path string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	store := &Store{conn: conn}
+	store := &Store{conn: conn, replayRetention: replayRetention}
 	if err := store.withConn(context.Background(), func(conn *sqlite.Conn) error {
 		if err := sqlitex.ExecScript(conn, schema); err != nil {
 			return err
@@ -706,6 +741,9 @@ CREATE TABLE IF NOT EXISTS ingest_batches (
     agent_id TEXT NOT NULL, boot_id TEXT NOT NULL, sequence INTEGER NOT NULL, received_at_ns INTEGER NOT NULL,
     PRIMARY KEY (agent_id, boot_id, sequence)
 );
+CREATE INDEX IF NOT EXISTS ingest_batches_received_idx ON ingest_batches(received_at_ns);
+CREATE INDEX IF NOT EXISTS logs_ingest_batch_idx ON logs(agent_id, boot_id, sequence);
+CREATE INDEX IF NOT EXISTS logs_node_container_idx ON logs(node_id, container_id);
 CREATE TABLE IF NOT EXISTS containers (
     node_id TEXT NOT NULL, node_name TEXT NOT NULL DEFAULT '', container_id TEXT NOT NULL,
     container_name TEXT NOT NULL DEFAULT '', image TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT '',

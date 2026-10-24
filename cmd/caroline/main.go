@@ -39,7 +39,12 @@ func main() {
 	if databasePath == "" {
 		databasePath = filepath.Join(dataDir, "caroline.db")
 	}
-	store, err := sqlite.Open(databasePath)
+	replayRetention := parseDurationEnv("CAROLINE_DEDUP_RETENTION", sqlite.DefaultReplayRetention)
+	if replayRetention <= 0 {
+		log.Printf("CAROLINE_DEDUP_RETENTION must be positive; using %s", sqlite.DefaultReplayRetention)
+		replayRetention = sqlite.DefaultReplayRetention
+	}
+	store, err := sqlite.OpenWithReplayRetention(databasePath, replayRetention)
 	if err != nil {
 		log.Fatalf("open Caroline database %q: %v", databasePath, err)
 	}
@@ -93,7 +98,7 @@ func main() {
 	retention := parseDurationEnv("CAROLINE_RETENTION", defaultRetention)
 	maxStorageBytes := parseByteSizeEnv("CAROLINE_MAX_STORAGE_SIZE", defaultMaxStorageBytes)
 	retentionMode := parseRetentionMode()
-	if retention > 0 || maxStorageBytes > 0 {
+	{ // Auxiliary-state retention stays enabled even when log retention is disabled.
 		retentionContext, cancelRetention := context.WithCancel(context.Background())
 		defer cancelRetention()
 		go runRetention(retentionContext, store, retention, maxStorageBytes, retentionMode)
