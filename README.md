@@ -97,6 +97,7 @@ The server listens on <http://localhost:8080> by default.
 | `CAROLINE_DB` | `$CAROLINE_DATA_DIR/caroline.db` | SQLite database path |
 | `CAROLINE_HUB_KEY` | `$CAROLINE_DATA_DIR/hub.key` | Hub Ed25519 private key |
 | `CAROLINE_PUBLIC_URL` | — | Public Hub URL used to generate Agent enrollment URLs |
+| `CAROLINE_DEDUP_RETENTION` | `7d` | Positive retention for orphan batch receipts and inactive container metadata; keep longer than the maximum Agent spool/retry age |
 | `CAROLINE_RETENTION` | `7d` | Log retention duration; `0`, `off`, or `disabled` turns it off |
 | `CAROLINE_MAX_STORAGE_SIZE` | `10GiB` | Logical retained log payload budget; `0`, `off`, or `disabled` turns it off |
 | `CAROLINE_RETENTION_MODE` | `independent` | `independent` uses Hub retention, `source` follows reported Docker log boundaries, and `min` applies the shorter of the two |
@@ -365,3 +366,9 @@ Caroline has no authentication or authorization. It runs with access to the Dock
 Caroline does not store log bodies or search results. Each request reads from the Docker Engine and displays the result as browser state. Alert configuration and matching timestamps are stored in `ALERTS_FILE`.
 
 The UI uses IBM Plex Sans. IBM Plex Mono is reserved for log bodies, timestamps, the query editor, container IDs, field names, and other monospace values. If Google Fonts is unavailable, the UI falls back to system fonts. Caroline uses Container Queries, `subgrid`, CSS Nesting, `dvh`, `light-dark()`, and other modern CSS features, so a relatively recent browser is recommended.
+
+### Auxiliary-state retention
+
+Startup/hourly cleanup also removes batch duplicate receipts older than `CAROLINE_DEDUP_RETENTION` (default 7 days) once no retained log references that batch. Inactive container metadata is removed only after that same period and after all its logs are gone. Expired or consumed enrollment tokens are removed. This cleanup remains active with log retention disabled.
+
+Duplicate suppression is guaranteed while a batch receipt or its logs remain. A delivery after both the configured replay window and log deletion can be accepted again; configure the window longer than every Agent's spool/retry lifetime (default spool: 24 hours). Live/retained-log metadata is preserved. SQLite can reuse freed pages; this is not a guarantee that the database file immediately shrinks, nor a hard cap for intentionally unbounded retained logs.
