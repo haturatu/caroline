@@ -2,13 +2,47 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Detect affected components
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      web: ${{ steps.filter.outputs.web }}
+      go: ${{ steps.filter.outputs.go }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          base: ${{ github.ref }}
+          filters: |
+            web:
+              - 'web/**'
+              - 'package.json'
+              - 'package-lock.json'
+              - '.nvmrc'
+              - 'biome.json'
+              - 'tsconfig.json'
+              - 'vite.config.ts'
+              - '.github/workflows/ci.yml'
+            go:
+              - 'cmd/**'
+              - 'internal/**'
+              - 'go.mod'
+              - 'go.sum'
+              - '.github/workflows/ci.yml'
   lint:
+    needs: changes
+    if: needs.changes.outputs.web == 'true' || needs.changes.outputs.go == 'true'
     name: Lint and test
     runs-on: ubuntu-latest
     steps:
@@ -16,38 +50,48 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Node.js
+        if: needs.changes.outputs.web == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 26.12.1
           cache: npm
 
       - name: Install Node.js dependencies
+        if: needs.changes.outputs.web == 'true'
         run: npm ci
 
       - name: Run Biome lint
+        if: needs.changes.outputs.web == 'true'
         run: npm run lint
 
       - name: Type-check frontend
+        if: needs.changes.outputs.web == 'true'
         run: npm run typecheck
 
       - name: Test explorer utilities
+        if: needs.changes.outputs.web == 'true'
         run: npm test
 
       - name: Build frontend
+        if: needs.changes.outputs.web == 'true'
         run: npm run build
 
       - name: Set up Go
+        if: needs.changes.outputs.go == 'true'
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
 
       - name: Check Go formatting
+        if: needs.changes.outputs.go == 'true'
         run: |
           gofmt_output="$(find . -type f -name '*.go' -not -path './vendor/*' -exec gofmt -l {} +)"
           test -z "$gofmt_output"
 
       - name: Run Go vet
+        if: needs.changes.outputs.go == 'true'
         run: go vet ./...
 
       - name: Run Go tests
+        if: needs.changes.outputs.go == 'true'
         run: go test ./...
