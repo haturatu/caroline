@@ -1,10 +1,19 @@
-# Retention cleanup performance investigation
+# Retention cleanup: investigation and benchmarks
 
-## Scope and plan
+The Hub stores incoming Docker logs in SQLite. Keeping that database within a
+configured size limit requires removing older rows, but the original cleanup
+path became increasingly expensive as the number of rows grew.
 
-Investigated commit `02e372a` using a Linux/amd64 Hub binary, Go symbol and
-instruction inspection, and a repeatable SQLite cleanup benchmark. The working
-plan, established after collecting the baseline, is:
+This report documents the bottleneck, the change made to the cleanup path, and
+the measurements used to check it. The numbers describe one synthetic benchmark
+on one machine; they are not production throughput guarantees.
+
+## What was measured
+
+I investigated commit `02e372a` using a Linux/amd64 Hub binary, Go symbol
+and instruction inspection, and a repeatable SQLite cleanup benchmark.
+
+After collecting the baseline, I used the following plan:
 
 1. Replace repeated full-table payload sums and individual deletions with one
    sum, one oldest-first boundary scan, and one indexed prefix deletion.
@@ -14,7 +23,7 @@ plan, established after collecting the baseline, is:
    before and after the change.
 4. Run Go tests, race detection, vet, and production-style builds; publish a PR.
 
-## Findings
+## The bottleneck
 
 - **Confirmed: quadratic size-budget cleanup.** For N rows and K deletions,
   `Cleanup` recalculated the payload sum K+1 times, visiting approximately
@@ -31,7 +40,10 @@ plan, established after collecting the baseline, is:
   allocations, but must preserve IDs across retries and existing deployments.
   This candidate has not been benchmarked and is outside this PR.
 
-## Baseline binary and profile evidence
+## Baseline environment and profile evidence
+
+The first question was whether the slowdown came from the Go binary itself or
+from the amount of SQLite work performed during cleanup.
 
 Environment: Go `go1.27.3-X:nodwarf5`, Linux/amd64, `GOAMD64=v1`, AMD Ryzen 5 PRO
 3500U. Benchmarks use one Go CPU and an in-memory database; fixture restoration
@@ -57,9 +69,10 @@ including callees and `_lengthFunc` for 25.39% self time. `Cleanup` accounted fo
 98.17% including callees. This supports removing repeated row scans rather than
 changing compiler flags or replacing the SQLite dependency.
 
-## Results
+## What changed
 
-The implementation calculates the total once after age/source cleanup, scans
+Instead of recalculating the total after every deletion, the implementation
+calculates the total once after age/source cleanup, scans
 oldest rows until their removal would satisfy the budget, resets that SELECT,
 and deletes the inclusive `(timestamp_ns, insert_id)` prefix in one statement.
 The boundary scan retains just one key in Go; it does not collect all IDs.
@@ -79,7 +92,9 @@ total only once. The optimized machine code has no deletion-to-sum back edge.
 The stripped Hub remains 12,124,320 bytes, so the gain comes from less runtime
 work rather than a smaller executable.
 
-Final comparison: five separate process launches per revision, alternating
+## Benchmark results
+
+I compared five separate process launches per revision, alternating
 before/after, with one timed cleanup per sub-benchmark and no concurrent builds
 or tests. Each fixture has 256 ASCII payload characters, a nine-character
 summary, three JSON `null` strings, and monotonically increasing timestamps.
@@ -106,6 +121,10 @@ Raw samples: [before](retention-cleanup-before.txt) and
 
 ## Compatibility and validation
 
+The optimization changes how cleanup selects rows to delete. It should not
+change which rows are retained, the order in which ties are resolved, or what
+happens when a transaction fails.
+
 The regression tests cover empty/disabled/exact budgets, complete deletion,
 out-of-insertion-order timestamps and tied IDs, zero-length rows, all five
 payload columns, NULLs, Unicode, embedded NUL, and combined age/size cleanup.
@@ -125,7 +144,11 @@ formatting, `git diff --check`, `npm ci`, `npm run lint`, `npm run typecheck`,
 `TMPDIR=/home/haturatu/.cache/caroline-performance-tests` after the default
 `/tmp` tmpfs ran out of linker space; the complete rerun passed.
 
-## Reproduction
+## Reproducing the measurements
+
+Keep the Go toolchain, benchmark fixture, and build flags the same for both
+revisions. Running the two benchmarks in parallel would make the results harder
+to compare.
 
 The benchmark-only commit `817b6ac` preserves the baseline implementation.
 Build it and the PR head with the same benchmark file and toolchain. Keep artifacts

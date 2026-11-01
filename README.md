@@ -1,19 +1,36 @@
 # Caroline
 <img width="1341" height="629" alt="top" src="https://github.com/user-attachments/assets/d89ad9db-64fa-45c4-93af-3e7329bdca6e" />
 
-Caroline is a lightweight Hub and Agent system for searching and inspecting stdout/stderr from Docker containers across multiple hosts. It is inspired by the information architecture of Google Cloud Logs Explorer, but its query syntax and data model are intentionally a small subset designed for Docker logs.
+Caroline collects stdout and stderr from Docker containers running on different hosts, then makes
+those logs searchable from one web interface. A lightweight Agent runs beside each Docker Engine,
+while a separate Hub stores the incoming logs in SQLite.
 
-See the [Japanese README](README.ja.md).  
-<img width="647" height="621" alt="image" src="https://github.com/user-attachments/assets/22a98400-9a31-4c45-a70f-fa00ac073804" />  
-good thing I don't need to buy more RAM!
+I built it because inspecting one container at a time was getting tedious. The interface takes cues
+from the parts of Google Cloud Logs Explorer I use most, but the query language and data model are
+deliberately smaller and focused on Docker.
 
-## Why Caroline?
+For the Japanese version, see [README.ja.md](README.ja.md).
 
-Most of my servers are managed with containers, but I wanted a single place to inspect their logs. When checking logs remotely, I had been using `Beszel` to inspect one container at a time, which was not ideal for log management. Caroline started as a personal tool with a Logs Explorer-like UI/UX, based on the parts of GCP Cloud Logging that I find useful.
+<img width="647" height="621" alt="Memory usage comparison" src="https://github.com/user-attachments/assets/22a98400-9a31-4c45-a70f-fa00ac073804" />
 
-The name came from listening to The Velvet Underground's “Caroline” while working on the project.
+At least I don't need to buy more RAM.
 
-## Features
+## Why I built it
+
+Most of my services run in Docker containers. When something went wrong, I was using Beszel to check
+individual containers remotely, which worked for quick checks but not for searching across hosts.
+
+I wanted to filter logs by container, host, severity, and time without jumping between machines. So
+I put a small Agent on each host and a single searchable Hub in front of them. It started as a tool
+for my own setup rather than an attempt to reproduce a full observability platform.
+
+The name comes from The Velvet Underground's “Caroline,” which happened to be playing while I worked
+on it.
+
+## What it does
+
+The main idea is to keep collection and searching separate. Agents read from Docker locally and
+deliver logs to the Hub; the Hub handles storage, queries, and the web interface.
 
 - A Hub that stores normalized logs in SQLite
 - A read-only Agent that discovers containers and follows Docker logs on each host
@@ -23,33 +40,49 @@ The name came from listening to The Velvet Underground's “Caroline” while wo
 - Full-field search and Caroline Query Syntax
 - Timeline, field aggregation, and a log detail drawer
 - Streaming display of new logs over SSE
-- Threshold-based log alerts with automatic Discord, Slack, ntfy, Microsoft Teams, and generic webhook delivery
+- Threshold-based log alerts with automatic Discord, Slack, ntfy, Microsoft Teams, and generic
+  webhook delivery
 - Share links that preserve the current search
 - Dark and light themes with mobile navigation
 - English, Japanese, Simplified Chinese, Traditional Chinese, and Russian UI
 - Agents use read-only access to their local Docker Engine; the Hub does not need the Docker socket
 
-## Internationalization
+## Language support
 
-The UI supports English, Japanese, `zh-CN`, `zh-TW`, and Russian. Choose a language from the header menu; the selection is stored in `localStorage` as `caroline-locale`. When no language has been selected, Caroline uses `navigator.languages` and `navigator.language` for detection. Query syntax remains locale-independent, while dates, numbers, and plural forms use the browser's standard `Intl` APIs. The language preference is not included in share links.
+The UI supports English, Japanese, `zh-CN`, `zh-TW`, and Russian. Choose a language from the header
+menu; the selection is stored in `localStorage` as `caroline-locale`. When no language has been
+selected, Caroline uses `navigator.languages` and `navigator.language` for detection. Query syntax
+remains locale-independent, while dates, numbers, and plural forms use the browser's standard `Intl`
+APIs. The language preference is not included in share links.
 
 ## Getting started
 
-### Docker Compose
+Docker Compose is the quickest way to try the Hub. The Agent runs separately on each machine whose
+containers you want to monitor.
+
+### Start the Hub with Docker Compose
 
 ~~~sh
 docker compose up -d --build
 ~~~
 
-Open <http://localhost:8080> in a browser.
+Open <http://localhost:8080> in your browser.
 
-The default Compose service is the Hub. It stores logs and identities in the `caroline-data` volume and does not mount the Docker socket. Set `CAROLINE_PUBLIC_URL` when the Hub is behind a reverse proxy so the Nodes page can generate usable enrollment URLs.
+This Compose file starts the **Hub only**. It stores logs and identities in the `caroline-data`
+volume; it does not need or mount the Docker socket.
+
+If you're accessing the Hub through a reverse proxy, set `CAROLINE_PUBLIC_URL` to the URL that
+Agents can reach. Otherwise, the enrollment links generated on the Nodes page may point to the wrong
+address.
 
 ~~~sh
 CAROLINE_PUBLIC_URL=https://caroline.example.com docker compose up -d --build
 ~~~
 
-On each Docker host, clone the repository and start the separate Agent Compose file. Copy the enrollment URL from the Hub's Nodes page and use it only for the first start:
+### Enroll an Agent
+
+On each Docker host, clone the repository and start its separate Agent Compose file. Copy the
+enrollment URL from **Nodes** in the Hub. You only need that URL for the first start:
 
 ~~~sh
 git clone https://github.com/haturatu/caroline
@@ -61,7 +94,14 @@ CAROLINE_ENROLL_URL='https://caroline.example.com/api/v1/agent/enroll/...' \
 docker compose -f compose.agent.yml up -d
 ~~~
 
-The Agent Compose file builds locally; it does not pull an Agent image from GHCR. The Agent is read-only against `/var/run/docker.sock` and keeps its identity, Hub pin, and offline spool in the `caroline-agent-data` volume. The enrollment URL is single-use. After the first registration, the Agent reconnects using the persisted `identity.json` and `hub.json`. The Compose service is labeled `caroline.collect=false`, so the Agent does not collect its own diagnostic logs. Apply the same label to any other container that should be excluded from log collection.
+The Agent image is built locally; this Compose file does not pull it from GHCR.
+
+The Agent mounts the Docker socket read-only and saves its identity, the pinned Hub key, and its
+offline spool in the `caroline-agent-data` volume. After the single-use enrollment URL has been
+consumed, subsequent starts use the saved `identity.json` and `hub.json`.
+
+The service has the label `caroline.collect=false`, so it won't collect its own diagnostic logs. You
+can add the same label to any container that should be excluded.
 
 To stop Caroline:
 
@@ -69,7 +109,10 @@ To stop Caroline:
 docker compose down
 ~~~
 
-### Run locally
+### Run without Compose
+
+If you're developing Caroline, you can run the Go server and Agent directly. The web assets must be
+built first.
 
 Requirements:
 
@@ -86,9 +129,16 @@ go run ./cmd/caroline
 go run ./cmd/caroline-agent
 ~~~
 
-The server listens on <http://localhost:8080> by default.
+The Hub listens on <http://localhost:8080> by default. The Agent still needs its Hub connection and
+enrollment settings; simply running the binary does not register it automatically.
 
-## Environment variables
+## Configuration
+
+The Hub and Agent have separate configuration. In particular, `CAROLINE_PUBLIC_URL` tells the Hub
+how to generate enrollment links, while `CAROLINE_HUB_URL` tells an Agent where to connect. They are
+not interchangeable.
+
+### Environment variables
 
 | Variable | Default | Description |
 | --- | --- | --- |
@@ -113,15 +163,31 @@ The server listens on <http://localhost:8080> by default.
 | `CAROLINE_AGENT_COMPRESSION` | `gzip` | Agent batch transport: `identity`, `gzip`, or `zstd` |
 | `DOCKER_HOST` | Docker default | Agent Docker Engine endpoint |
 
-`DOCKER_HOST` supports `unix://`, `tcp://`, `http://`, and `https://` endpoints. When using a TCP or HTTP connection, configure authentication, TLS, and network controls on the Docker Engine side as appropriate.
+`DOCKER_HOST` supports `unix://`, `tcp://`, `http://`, and `https://` endpoints. When using a TCP or
+HTTP connection, configure authentication, TLS, and network controls on the Docker Engine side as
+appropriate.
 
-The Hub can run without a Docker socket. In Hub mode `/api/status` reports `mode: "hub"`; logs arrive from authenticated Agents. For a single-host deployment, run an Agent beside the Hub rather than granting the Hub access to the Docker socket.
+The Hub does not need Docker socket access. Its `/api/status` response reports `mode: "hub"`, and
+logs arrive from enrolled Agents. Even on a single host, run an Agent alongside the Hub instead of
+giving the Hub the socket.
 
-By default, the Hub deletes logs older than 7 days and also enforces a 10 GiB logical payload budget; whichever condition requires deletion is applied first. `CAROLINE_RETENTION_MODE=source` removes logs older than the oldest timestamp currently reported by each Agent/container, while `min` applies both that source boundary and the Hub duration. The Agent reads the boundary from Docker's current logs API; it does not convert `max-size` and `max-file` into an estimated duration. If Docker cannot report a boundary, Caroline keeps the Hub copy rather than deleting it speculatively. The size budget covers retained log payload columns, not the complete `caroline.db` file: SQLite indexes, row and page overhead, metadata tables, and WAL files are additional disk usage. Set either variable to `0`, `off`, or `disabled` only when an unbounded limit is intentional. Cleanup runs at startup and hourly. Agent offline spool limits are separate and default to 1 GiB or 24 hours.
+### Retention and disk usage
 
-### Registering an Agent
+The default retention policy is seven days or 10 GiB of **logical log payload**, whichever limit
+removes logs sooner. `CAROLINE_RETENTION_MODE=source` removes logs older than the oldest timestamp
+currently reported by each Agent/container, while `min` applies both that source boundary and the
+Hub duration. The Agent reads the boundary from Docker's current logs API; it does not convert
+`max-size` and `max-file` into an estimated duration. If Docker cannot report a boundary, Caroline
+keeps the Hub copy rather than deleting it speculatively. The size budget covers retained log
+payload columns, not the complete `caroline.db` file: SQLite indexes, row and page overhead,
+metadata tables, and WAL files are additional disk usage. Set either variable to `0`, `off`, or
+`disabled` only when an unbounded limit is intentional. Cleanup runs at startup and hourly. Agent
+offline spool limits are separate and default to 1 GiB or 24 hours.
 
-Create a short-lived, single-use enrollment URL from the Hub's Nodes page, or create one through the API:
+### Enrolling through the API
+
+The Nodes page is the simplest way to register an Agent. If you're automating the process, you can
+also request a short-lived, single-use URL through the API:
 
 ~~~sh
 curl -X POST http://localhost:8080/api/nodes \
@@ -129,9 +195,20 @@ curl -X POST http://localhost:8080/api/nodes \
   -d '{"ttlSeconds":900}'
 ~~~
 
-The API response includes `enrollmentUrl`. Configure the Agent with `CAROLINE_ENROLL_URL` for its first start. The URL registration response is verified and the Hub public key plus Hub URL are persisted in `hub.json`; subsequent requests use the Agent's persistent Ed25519 key. Existing deployments can continue using `CAROLINE_HUB_URL`, `CAROLINE_ENROLLMENT_TOKEN`, and `CAROLINE_HUB_PUBLIC_KEY`. Protect the node-management endpoints with the deployment's access-control layer before exposing them outside a trusted network.
+The response contains `enrollmentUrl`. Pass that value as `CAROLINE_ENROLL_URL` on the first Agent
+start. The Agent verifies the enrollment response and persists the Hub URL and public-key pin in
+`hub.json`. Later requests use the Agent's persistent Ed25519 identity.
 
-## Using the UI
+Existing installations can still use `CAROLINE_HUB_URL`, `CAROLINE_ENROLLMENT_TOKEN`, and
+`CAROLINE_HUB_PUBLIC_KEY`.
+
+**Important:** Caroline has no built-in user authentication. Protect node-management endpoints
+behind your own access-control layer before exposing the Hub outside a trusted network.
+
+## Using the web interface
+
+Once Agents are connected, use Explorer to search across containers and hosts. Start with the basic
+filters, and switch to a query only when you need something more specific.
 
 ### Filters
 
@@ -142,34 +219,66 @@ The API response includes `enrollmentUrl`. Configure the Agent with `CAROLINE_EN
 - **Time**: 5 minutes, 15 minutes, 1 hour, 6 hours, 24 hours, 7 days, or a custom range
 - **Search Logs**: Search text across all supported fields
 
-Preset changes to Container, Stream, Severity, and Time run immediately. For a custom time range, enter From and To and press **Apply**. Sort changes also apply immediately. Search Logs runs 300 ms after input stops.
+Preset changes to Container, Stream, Severity, and Time run immediately. For a custom time range,
+enter From and To and press **Apply**. Sort changes also apply immediately. Search Logs runs 300 ms
+after input stops.
 
-Edit advanced conditions from **Show Query**. Run an advanced query with **Run Query**, or press `Ctrl + Enter` / `Cmd + Enter` in the query editor. Basic filters and the Advanced Query are combined with `AND`.
+Edit advanced conditions from **Show Query**. Run an advanced query with **Run Query**, or press
+`Ctrl + Enter` / `Cmd + Enter` in the query editor. Basic filters and the Advanced Query are
+combined with `AND`.
 
-**Reset Filters** returns the search text, container, stream, severity, time range, and Advanced Query to their initial state.
+**Reset Filters** returns the search text, container, stream, severity, time range, and Advanced
+Query to their initial state.
 
-### Streaming
+### Live streaming
 
-When Streaming is enabled, Caroline opens an SSE connection to `/api/tail` after the initial search and appends new logs to the page. It does not poll every five seconds.
+Streaming follows the initial search by opening a Server-Sent Events connection to `/api/tail`. New
+entries appear as they arrive; the browser does **not** poll every five seconds.
 
-Stopping Streaming closes the SSE connection. Changing filters, the time range, sort order, or query closes the current stream and reconnects from a new search result. If the connection drops, the browser's `EventSource` automatically attempts to reconnect.
+Stopping Streaming closes the SSE connection. Changing filters, the time range, sort order, or query
+closes the current stream and reconnects from a new search result. If the connection drops, the
+browser's `EventSource` automatically attempts to reconnect.
 
 ### Alerts
 
-Create an alert from the current query with a threshold, time window, cooldown, severity, labels, an optional runbook URL, and a sample redaction mode. The UI keeps only `Runbook URL` and `Webhook URL`; Caroline detects the webhook provider from the HTTPS host and path. It supports Discord (`discord.com/api/webhooks/...`), Slack Incoming Webhooks (`hooks.slack.com/services/...`), ntfy topics (`ntfy.sh/<topic>`), Microsoft Teams Workflows (`*.logic.azure.com/.../paths/invoke` and `*.api.powerplatform.com/powerautomate/...`), and generic JSON for other URLs. Set `CAROLINE_URL` to the public Caroline URL to include a time-bounded Explorer deep link in notifications. The alert engine consumes the same shared Docker `follow` streams as SSE, so each running container has at most one Caroline-side follow stream regardless of how many alert rules use it.
+For cases where you don't want to watch a screen, create an alert from the current query. You can
+set a match threshold, time window, and cooldown, then send notifications to a webhook.
 
-Use **Manage Alerts** in Explorer to open the dedicated policy management view. It provides policy, firing, enabled, and notification summaries; name/query search; status filtering; edit; pause/resume; and delete actions. Webhook URLs remain hidden from list and API responses, and partial edits retain an existing webhook unless it is explicitly removed.
+Create an alert from the current query with a threshold, time window, cooldown, severity, labels, an
+optional runbook URL, and a sample redaction mode. The UI keeps only `Runbook URL` and `Webhook
+URL`; Caroline detects the webhook provider from the HTTPS host and path. It supports Discord
+(`discord.com/api/webhooks/...`), Slack Incoming Webhooks (`hooks.slack.com/services/...`), ntfy
+topics (`ntfy.sh/<topic>`), Microsoft Teams Workflows (`*.logic.azure.com/.../paths/invoke` and
+`*.api.powerplatform.com/powerautomate/...`), and generic JSON for other URLs. Set `CAROLINE_URL` to
+the public Caroline URL to include a time-bounded Explorer deep link in notifications. The alert
+engine consumes the same shared Docker `follow` streams as SSE, so each running container has at
+most one Caroline-side follow stream regardless of how many alert rules use it.
 
-Rules and alert state are persisted to the JSON file configured by `ALERTS_FILE` and restored on startup. Caroline does not store log bodies or matching entries themselves; it keeps timestamps and small incident metadata such as firing start, peak count, and container name. A rule transitions between `OK` and `FIRING`, and sends a webhook notification for firing and resolution events when a webhook is configured. Docker Compose stores the file in the `caroline-data` volume.
+Use **Manage Alerts** in Explorer to open the dedicated policy management view. It provides policy,
+firing, enabled, and notification summaries; name/query search; status filtering; edit;
+pause/resume; and delete actions. Webhook URLs remain hidden from list and API responses, and
+partial edits retain an existing webhook unless it is explicitly removed.
+
+Rules and alert state are persisted to the JSON file configured by `ALERTS_FILE` and restored on
+startup. Caroline does not store log bodies or matching entries themselves; it keeps timestamps and
+small incident metadata such as firing start, peak count, and container name. A rule transitions
+between `OK` and `FIRING`, and sends a webhook notification for firing and resolution events when a
+webhook is configured. Docker Compose stores the file in the `caroline-data` volume.
 
 ### Timeline, Fields, and Logs
 
-- **Timeline**: Splits the result range into 24–96 responsive buckets based on the timeline width and displays them by severity. Click a bar or drag across a range to change the time range. Zoom controls are also available.
-- **Fields**: Aggregates System Metadata and Frequent Fields in the result set. Clicking a field value adds it to the Advanced Query.
+- **Timeline**: Splits the result range into 24–96 responsive buckets based on the timeline width
+  and displays them by severity. Click a bar or drag across a range to change the time range. Zoom
+  controls are also available.
+- **Fields**: Aggregates System Metadata and Frequent Fields in the result set. Clicking a field
+  value adds it to the Advanced Query.
 - **Logs**: Supports newest/oldest sorting, Wrap Lines, and Load More.
-- Selecting a row opens a detail drawer with the Summary, Payload, metadata, and copyable Entry JSON.
+- Selecting a row opens a detail drawer with the Summary, Payload, metadata, and copyable Entry
+  JSON.
 
-On desktop and mobile, use the menu button in the upper-left corner to open the navigation drawer. The Explore and Detect categories are collapsible and expose the implemented Logs, Timeline, Fields, and Alerts views. Fields appears as a bottom sheet on mobile.
+On desktop and mobile, use the menu button in the upper-left corner to open the navigation drawer.
+The Explore and Detect categories are collapsible and expose the implemented Logs, Timeline, Fields,
+and Alerts views. Fields appears as a bottom sheet on mobile.
 
 ### Keyboard shortcuts
 
@@ -180,9 +289,12 @@ On desktop and mobile, use the menu button in the upper-left corner to open the 
 - `Home` / `End`: Move to the first or last log row
 - `Escape`: Close the detail drawer, mobile navigation, or menu
 
-## Caroline Query Syntax
+## Searching with Caroline Query Syntax
 
-Caroline's query language is inspired by Cloud Logging, but is not fully compatible with it.
+The query language is intentionally small. It borrows familiar field-based expressions from Cloud
+Logging, but it is not a drop-in replacement for Cloud Logging queries.
+
+For example:
 
 ~~~text
 severity >= ERROR
@@ -208,13 +320,21 @@ The supported operators are:
 - A newline: Treated as `AND`
 - `AND` / `OR`: Combine clauses
 
-Supported fields include `severity`, `stream`, `logName`, `resource.type`, `resource.labels.node_id`, `resource.labels.node_name`, `resource.labels.container_name`, `resource.labels.container_id`, `resource.labels.image`, `timestamp`, `labels.*`, `jsonPayload.*`, and `textPayload` / `message`. Short names such as `node`, `container`, and `container.name` are also supported.
+Supported fields include `severity`, `stream`, `logName`, `resource.type`,
+`resource.labels.node_id`, `resource.labels.node_name`, `resource.labels.container_name`,
+`resource.labels.container_id`, `resource.labels.image`, `timestamp`, `labels.*`, `jsonPayload.*`,
+and `textPayload` / `message`. Short names such as `node`, `container`, and `container.name` are
+also supported.
 
-`SEARCH("text")` searches the Summary, Text Payload, Log Name, resource type and labels, and JSON Payload. `NOT`, parenthesized precedence, regular expressions, and Cloud Logging-specific functions are not supported.
+`SEARCH("text")` searches the Summary, Text Payload, Log Name, resource type and labels, and JSON
+Payload. `NOT`, parenthesized precedence, regular expressions, and Cloud Logging-specific functions
+are not supported.
 
-## Data model and limits
+## What Caroline stores and what searches return
 
-Docker log lines are normalized into a format similar to a Cloud Logging LogEntry:
+Agents send Docker log lines to the Hub, which normalizes them into a compact, LogEntry-like
+structure. That lets you search consistently across nodes even when different containers emit
+different formats:
 
 - `resource.type`: `docker_container`
 - `resource.labels`: Node ID/name, container name/ID, and image
@@ -223,7 +343,8 @@ Docker log lines are normalized into a format similar to a Cloud Logging LogEntr
 - `stream`: `stdout` or `stderr`
 - Lines that can be parsed as JSON also retain a `jsonPayload`
 
-Severity is not a standard Docker attribute. It is estimated from keywords in the log body, including `ERROR`, `FATAL`, `PANIC`, `WARN`, `DEPRECATED`, `DEBUG`, and `TRACE`.
+Severity is not a standard Docker attribute. It is estimated from keywords in the log body,
+including `ERROR`, `FATAL`, `PANIC`, `WARN`, `DEPRECATED`, `DEBUG`, and `TRACE`.
 
 The following limits keep searches bounded:
 
@@ -234,13 +355,17 @@ The following limits keep searches bounded:
 - Containers included in Streaming: 8
 - Maximum size of one log payload or follow frame: 8 MiB
 
-Because of these limits, the response's `approximate` field indicates that the search is approximate. The UI shows this as `Partial`, where the per-container line limit can be inspected. Expanding the time range does not retrieve unlimited historical logs from a container.
+Because of these limits, the response's `approximate` field indicates that the search is
+approximate. The UI shows this as `Partial`, where the per-container line limit can be inspected.
+Expanding the time range does not retrieve unlimited historical logs from a container.
 
-Pagination uses an opaque `nextPageToken` based on the timestamp and insert ID. Keep the same search conditions, time range, and sort order when requesting the next page.
+Pagination uses an opaque `nextPageToken` based on the timestamp and insert ID. Keep the same search
+conditions, time range, and sort order when requesting the next page.
 
-## API
+## HTTP API
 
-Read APIs support GET and also accept HEAD requests. Alert rules additionally use POST, PUT/PATCH, and DELETE.
+You can use the same searches without opening the browser. Read endpoints accept GET and HEAD; alert
+management also supports POST, PUT/PATCH, and DELETE.
 
 ### `GET /api/health`
 
@@ -252,7 +377,8 @@ Returns a health response for the Caroline server.
 
 ### `GET /api/status`
 
-Returns the Hub mode or Docker Engine connection state, Docker version, API version, and check time. A Hub response has `mode: "hub"`; its `connected` field is not a Docker health signal.
+Returns the Hub mode or Docker Engine connection state, Docker version, API version, and check time.
+A Hub response has `mode: "hub"`; its `connected` field is not a Docker health signal.
 
 ### `GET /api/explorer`
 
@@ -279,13 +405,16 @@ Example:
 curl 'http://localhost:8080/api/explorer?duration=15m&limit=100&q=severity%20%3E%3D%20ERROR&sort=desc'
 ~~~
 
-In addition to `entries`, the response includes `containers`, a responsive 24–96-bucket `timeline`, `fields`, `total`, `generatedAt`, `from`, `to`, `approximate`, `logTail`, `entryLimit`, and `truncated`.
+In addition to `entries`, the response includes `containers`, a responsive 24–96-bucket `timeline`,
+`fields`, `total`, `generatedAt`, `from`, `to`, `approximate`, `logTail`, `entryLimit`, and
+`truncated`.
 
 ### `GET /api/tail`
 
 Returns new logs as Server-Sent Events.
 
-Main query parameters are `since`, `q`, `severity`, `stream`, `containers`, and `nodes`. `since` is an RFC3339 timestamp.
+Main query parameters are `since`, `q`, `severity`, `stream`, `containers`, and `nodes`. `since` is
+an RFC3339 timestamp.
 
 Events:
 
@@ -295,11 +424,16 @@ Events:
 - `error`: A Streaming error for a specific container
 - An SSE keep-alive comment is sent every 15 seconds while the connection is open.
 
-The SSE endpoint and alert engine share a `logstream.Manager`; a browser connection does not create another Docker follow stream for a container already watched by Caroline.
+The SSE endpoint and alert engine share a `logstream.Manager`; a browser connection does not create
+another Docker follow stream for a container already watched by Caroline.
 
 ### `/api/alerts`
 
-Alert rules are persisted in the JSON file configured by `ALERTS_FILE`. `GET /api/alerts` lists rules, `POST /api/alerts` creates one, `GET` or `PUT` `/api/alerts/{id}` reads or replaces one, `PATCH` `/api/alerts/{id}` updates selected fields, and `DELETE` `/api/alerts/{id}` removes one. Omitted fields in a PATCH are retained. Because the file contains webhook URLs, Caroline writes it with `0600` permissions.
+Alert rules are persisted in the JSON file configured by `ALERTS_FILE`. `GET /api/alerts` lists
+rules, `POST /api/alerts` creates one, `GET` or `PUT` `/api/alerts/{id}` reads or replaces one,
+`PATCH` `/api/alerts/{id}` updates selected fields, and `DELETE` `/api/alerts/{id}` removes one.
+Omitted fields in a PATCH are retained. Because the file contains webhook URLs, Caroline writes it
+with `0600` permissions.
 
 Create a rule with JSON such as:
 
@@ -321,11 +455,26 @@ Create a rule with JSON such as:
 }
 ~~~
 
-Webhook payloads contain `alert.firing` or `alert.resolved`, the stable rule ID, severity and labels, rule query, current and peak match counts, threshold, window, container, firing start time, timestamp, Explorer URL, runbook URL, and a redacted sample entry when enabled. `sampleMode` can be `off`, `summary`, or `full`; full samples are sanitized before leaving Caroline. Webhook URLs are not returned by the API.
+Webhook payloads contain `alert.firing` or `alert.resolved`, the stable rule ID, severity and
+labels, rule query, current and peak match counts, threshold, window, container, firing start time,
+timestamp, Explorer URL, runbook URL, and a redacted sample entry when enabled. `sampleMode` can be
+`off`, `summary`, or `full`; full samples are sanitized before leaving Caroline. Webhook URLs are
+not returned by the API.
 
-Discord Incoming Webhooks follow Discord's [Execute Webhook](https://docs.discord.com/developers/resources/webhook#execute-webhook) format, including an `embeds` message and `allowed_mentions: {"parse": []}`. Caroline also sends `wait=true` so Discord confirms message creation. Slack uses the official [Incoming Webhooks](https://docs.slack.dev/messaging/sending-messages-using-incoming-webhooks/) JSON and Block Kit format, ntfy uses the official [publishing headers and message body](https://docs.ntfy.sh/publish/), and Teams uses the Microsoft [Teams webhook connector](https://learn.microsoft.com/en-us/connectors/teams/) message envelope with an Adaptive Card. Unknown webhook hosts retain the generic JSON payload.
+Discord Incoming Webhooks follow Discord's [Execute
+Webhook](https://docs.discord.com/developers/resources/webhook#execute-webhook) format, including an
+`embeds` message and `allowed_mentions: {"parse": []}`. Caroline also sends `wait=true` so Discord
+confirms message creation. Slack uses the official [Incoming
+Webhooks](https://docs.slack.dev/messaging/sending-messages-using-incoming-webhooks/) JSON and Block
+Kit format, ntfy uses the official [publishing headers and message
+body](https://docs.ntfy.sh/publish/), and Teams uses the Microsoft [Teams webhook
+connector](https://learn.microsoft.com/en-us/connectors/teams/) message envelope with an Adaptive
+Card. Unknown webhook hosts retain the generic JSON payload.
 
 ## Development
+
+Build the frontend before starting the Go Hub locally, and run the Go tests after changing
+collection, storage, or query behavior.
 
 ~~~sh
 npm ci
@@ -361,14 +510,37 @@ go test ./...
 
 ## Security and operational notes
 
-Caroline has no authentication or authorization. It runs with access to the Docker socket, so expose port 8080 only to a trusted local network. When using a TCP Docker Engine, configure TLS, authentication, and firewall controls outside Caroline.
+Caroline does **not** provide built-in user authentication or authorization. Only expose the Hub
+through a trusted network or an access-controlled reverse proxy, particularly because the API
+includes Agent enrollment and alert management.
 
-Caroline does not store log bodies or search results. Each request reads from the Docker Engine and displays the result as browser state. Alert configuration and matching timestamps are stored in `ALERTS_FILE`.
+The **Agent**, not the Hub, accesses the local Docker Engine. Although the Compose file mounts
+`/var/run/docker.sock` read-only, Docker socket access is still highly privileged; a read-only mount
+does not make arbitrary Docker API access safe. Keep Agents on trusted hosts and restrict access to
+any remotely exposed Docker Engine with TLS, authentication, and firewall rules.
 
-The UI uses IBM Plex Sans. IBM Plex Mono is reserved for log bodies, timestamps, the query editor, container IDs, field names, and other monospace values. If Google Fonts is unavailable, the UI falls back to system fonts. Caroline uses Container Queries, `subgrid`, CSS Nesting, `dvh`, `light-dark()`, and other modern CSS features, so a relatively recent browser is recommended.
+Unlike a live-only Docker log viewer, Caroline **does store log bodies** in the Hub's SQLite
+database. Those logs may contain secrets or personal information. Restrict access to the
+`caroline-data` volume, set retention limits deliberately, and avoid exposing backups. Alert rules
+and their state are stored separately in `ALERTS_FILE` and may include sensitive webhook URLs.
 
-### Auxiliary-state retention
+The UI uses IBM Plex Sans. IBM Plex Mono is reserved for log bodies, timestamps, the query editor,
+container IDs, field names, and other monospace values. If Google Fonts is unavailable, the UI falls
+back to system fonts. Caroline uses Container Queries, `subgrid`, CSS Nesting, `dvh`,
+`light-dark()`, and other modern CSS features, so a relatively recent browser is recommended.
 
-Startup/hourly cleanup also removes batch duplicate receipts older than `CAROLINE_DEDUP_RETENTION` (default 7 days) once no retained log references that batch. Inactive container metadata is removed only after that same period and after all its logs are gone. Expired or consumed enrollment tokens are removed. This cleanup remains active with log retention disabled.
+### Cleaning up auxiliary state
 
-Duplicate suppression is guaranteed while a batch receipt or its logs remain. A delivery after both the configured replay window and log deletion can be accepted again; configure the window longer than every Agent's spool/retry lifetime (default spool: 24 hours). Live/retained-log metadata is preserved. SQLite can reuse freed pages; this is not a guarantee that the database file immediately shrinks, nor a hard cap for intentionally unbounded retained logs.
+Removing old log entries is only part of retention. The Hub also cleans up duplicate-delivery
+receipts, inactive container metadata, and expired enrollment tokens.
+
+Startup/hourly cleanup also removes batch duplicate receipts older than `CAROLINE_DEDUP_RETENTION`
+(default 7 days) once no retained log references that batch. Inactive container metadata is removed
+only after that same period and after all its logs are gone. Expired or consumed enrollment tokens
+are removed. This cleanup remains active with log retention disabled.
+
+Duplicate suppression is guaranteed while a batch receipt or its logs remain. A delivery after both
+the configured replay window and log deletion can be accepted again; configure the window longer
+than every Agent's spool/retry lifetime (default spool: 24 hours). Live/retained-log metadata is
+preserved. SQLite can reuse freed pages; this is not a guarantee that the database file immediately
+shrinks, nor a hard cap for intentionally unbounded retained logs.
